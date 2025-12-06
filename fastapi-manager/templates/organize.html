@@ -1,0 +1,791 @@
+{% extends "base.html" %}
+
+{% block title %}Organize - Media Manager{% endblock %}
+{% block nav_organize %}active{% endblock %}
+
+{% block head %}
+<style>
+    .organize-container {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+    }
+
+    .file-browser {
+        background-color: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 0.75rem;
+        overflow: hidden;
+    }
+
+    .file-browser-header {
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .file-browser-header h2 {
+        font-size: 1.125rem;
+        font-weight: 600;
+    }
+
+    .path-display {
+        font-size: 0.875rem;
+        color: var(--text-muted);
+        font-family: monospace;
+    }
+
+    .file-list {
+        list-style: none;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .file-item {
+        display: flex;
+        align-items: center;
+        padding: 0.875rem 1.5rem;
+        border-bottom: 1px solid var(--border-color);
+        cursor: pointer;
+        transition: background-color 0.15s;
+    }
+
+    .file-item:hover {
+        background-color: rgba(99, 102, 241, 0.1);
+    }
+
+    .file-item:last-child {
+        border-bottom: none;
+    }
+
+    .file-item.selected {
+        background-color: rgba(99, 102, 241, 0.2);
+    }
+
+    .file-icon {
+        width: 32px;
+        height: 32px;
+        margin-right: 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: var(--bg-color);
+        border-radius: 0.5rem;
+        font-size: 1rem;
+    }
+
+    .file-icon.folder { color: #fbbf24; }
+    .file-icon.video { color: #8b5cf6; }
+    .file-icon.audio { color: #22c55e; }
+    .file-icon.unknown { color: var(--text-muted); }
+
+    .file-info {
+        flex: 1;
+    }
+
+    .file-name {
+        font-weight: 500;
+        margin-bottom: 0.125rem;
+        word-break: break-word;
+    }
+
+    .file-meta {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+
+    .file-action {
+        margin-left: 1rem;
+    }
+
+    /* Modal styles */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(0, 0, 0, 0.75);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        padding: 1rem;
+    }
+
+    .modal-overlay.active {
+        display: flex;
+    }
+
+    .modal {
+        background-color: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 0.75rem;
+        width: 100%;
+        max-width: 700px;
+        max-height: 90vh;
+        overflow-y: auto;
+    }
+
+    .modal-header {
+        padding: 1.25rem 1.5rem;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .modal-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+    }
+
+    .modal-close {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-size: 1.5rem;
+        cursor: pointer;
+        padding: 0.25rem;
+        line-height: 1;
+    }
+
+    .modal-close:hover {
+        color: var(--text-color);
+    }
+
+    .modal-body {
+        padding: 1.5rem;
+    }
+
+    .modal-footer {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid var(--border-color);
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.75rem;
+    }
+
+    /* Analysis section */
+    .analysis-section {
+        margin-bottom: 1.5rem;
+    }
+
+    .analysis-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+    }
+
+    .confidence-badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 1rem;
+        font-size: 0.75rem;
+        font-weight: 500;
+        text-transform: uppercase;
+    }
+
+    .confidence-high {
+        background-color: rgba(34, 197, 94, 0.2);
+        color: var(--success);
+    }
+
+    .confidence-medium {
+        background-color: rgba(245, 158, 11, 0.2);
+        color: var(--warning);
+    }
+
+    .confidence-low {
+        background-color: rgba(239, 68, 68, 0.2);
+        color: var(--error);
+    }
+
+    .media-type-badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 1rem;
+        font-size: 0.75rem;
+        font-weight: 500;
+        text-transform: uppercase;
+        background-color: rgba(99, 102, 241, 0.2);
+        color: var(--primary-color);
+    }
+
+    /* TMDB matches */
+    .tmdb-matches {
+        margin-bottom: 1.5rem;
+    }
+
+    .tmdb-matches h4 {
+        font-size: 0.875rem;
+        font-weight: 500;
+        margin-bottom: 0.75rem;
+        color: var(--text-muted);
+    }
+
+    .tmdb-list {
+        display: flex;
+        gap: 0.75rem;
+        overflow-x: auto;
+        padding-bottom: 0.5rem;
+    }
+
+    .tmdb-card {
+        flex-shrink: 0;
+        width: 120px;
+        cursor: pointer;
+        border: 2px solid transparent;
+        border-radius: 0.5rem;
+        overflow: hidden;
+        background-color: var(--bg-color);
+        transition: border-color 0.15s;
+    }
+
+    .tmdb-card:hover {
+        border-color: var(--border-color);
+    }
+
+    .tmdb-card.selected {
+        border-color: var(--primary-color);
+    }
+
+    .tmdb-poster {
+        width: 100%;
+        height: 160px;
+        object-fit: cover;
+        background-color: var(--border-color);
+    }
+
+    .tmdb-poster.no-poster {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-muted);
+        font-size: 2rem;
+    }
+
+    .tmdb-info {
+        padding: 0.5rem;
+    }
+
+    .tmdb-title {
+        font-size: 0.75rem;
+        font-weight: 500;
+        line-height: 1.3;
+        margin-bottom: 0.25rem;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .tmdb-year {
+        font-size: 0.625rem;
+        color: var(--text-muted);
+    }
+
+    /* Form fields */
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .form-label {
+        display: block;
+        font-size: 0.875rem;
+        font-weight: 500;
+        margin-bottom: 0.375rem;
+        color: var(--text-muted);
+    }
+
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+    }
+
+    .destination-preview {
+        background-color: var(--bg-color);
+        border: 1px solid var(--border-color);
+        border-radius: 0.5rem;
+        padding: 0.75rem 1rem;
+        font-family: monospace;
+        font-size: 0.875rem;
+        color: var(--success);
+        word-break: break-all;
+    }
+
+    /* File list in modal */
+    .files-section {
+        margin-bottom: 1.5rem;
+    }
+
+    .files-section h4 {
+        font-size: 0.875rem;
+        font-weight: 500;
+        margin-bottom: 0.75rem;
+        color: var(--text-muted);
+    }
+
+    .files-list {
+        background-color: var(--bg-color);
+        border: 1px solid var(--border-color);
+        border-radius: 0.5rem;
+        max-height: 150px;
+        overflow-y: auto;
+    }
+
+    .files-list-item {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.75rem;
+        font-family: monospace;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .files-list-item:last-child {
+        border-bottom: none;
+    }
+
+    /* Loading state */
+    .loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 3rem;
+        color: var(--text-muted);
+    }
+
+    .spinner {
+        width: 24px;
+        height: 24px;
+        border: 2px solid var(--border-color);
+        border-top-color: var(--primary-color);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        margin-right: 0.75rem;
+    }
+
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    /* Toast notifications */
+    .toast-container {
+        position: fixed;
+        bottom: 1.5rem;
+        right: 1.5rem;
+        z-index: 2000;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .toast {
+        background-color: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 0.5rem;
+        padding: 0.875rem 1.25rem;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        animation: slideIn 0.2s ease-out;
+    }
+
+    @keyframes slideIn {
+        from {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+
+    .toast.success { border-left: 3px solid var(--success); }
+    .toast.error { border-left: 3px solid var(--error); }
+    .toast.info { border-left: 3px solid var(--primary-color); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="organize-container">
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Torrent Organizer</h2>
+            <button class="btn btn-secondary" onclick="refreshFileList()">Refresh</button>
+        </div>
+        <p style="color: var(--text-muted); margin-bottom: 1rem;">
+            Select a file or folder to analyze and move to the correct Jellyfin library.
+            {% if not tmdb_enabled %}
+            <br><span style="color: var(--warning);">Note: TMDB API key not configured. Metadata enrichment disabled.</span>
+            {% endif %}
+        </p>
+    </div>
+
+    <div class="file-browser">
+        <div class="file-browser-header">
+            <h2>Downloads</h2>
+            <span class="path-display">{{ downloads_path }}</span>
+        </div>
+        <ul class="file-list" id="file-list">
+            <li class="loading">
+                <div class="spinner"></div>
+                Loading files...
+            </li>
+        </ul>
+    </div>
+</div>
+
+<!-- Analysis Modal -->
+<div class="modal-overlay" id="analyze-modal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 class="modal-title">Organize Media</h3>
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+        </div>
+        <div class="modal-body" id="modal-body">
+            <div class="loading">
+                <div class="spinner"></div>
+                Analyzing file...
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+            <button class="btn btn-primary" id="move-btn" onclick="moveFile()" disabled>Move to Library</button>
+        </div>
+    </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toast-container"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentAnalysis = null;
+    let selectedTmdbMatch = null;
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+        refreshFileList();
+    });
+
+    // Fetch and display file list
+    async function refreshFileList() {
+        const fileList = document.getElementById('file-list');
+        fileList.innerHTML = '<li class="loading"><div class="spinner"></div>Loading files...</li>';
+
+        try {
+            const response = await fetch('/organize/list');
+            const data = await response.json();
+
+            if (data.items.length === 0) {
+                fileList.innerHTML = '<li class="empty-state">No files in Downloads folder</li>';
+                return;
+            }
+
+            fileList.innerHTML = data.items.map(item => `
+                <li class="file-item" onclick="analyzeItem('${escapeHtml(item.path)}')">
+                    <div class="file-icon ${item.type}">${getIcon(item.type, item.is_directory)}</div>
+                    <div class="file-info">
+                        <div class="file-name">${escapeHtml(item.name)}</div>
+                        <div class="file-meta">${item.size_formatted}</div>
+                    </div>
+                    <div class="file-action">
+                        <button class="btn btn-primary" onclick="event.stopPropagation(); analyzeItem('${escapeHtml(item.path)}')">
+                            Organize
+                        </button>
+                    </div>
+                </li>
+            `).join('');
+        } catch (error) {
+            fileList.innerHTML = '<li class="empty-state">Error loading files</li>';
+            showToast('Error loading files: ' + error.message, 'error');
+        }
+    }
+
+    // Get icon for file type
+    function getIcon(type, isDirectory) {
+        if (isDirectory) return '&#128193;';
+        switch (type) {
+            case 'video': return '&#127909;';
+            case 'audio': return '&#127925;';
+            default: return '&#128196;';
+        }
+    }
+
+    // Analyze a file/folder
+    async function analyzeItem(path) {
+        const modal = document.getElementById('analyze-modal');
+        const modalBody = document.getElementById('modal-body');
+        const moveBtn = document.getElementById('move-btn');
+
+        modal.classList.add('active');
+        modalBody.innerHTML = '<div class="loading"><div class="spinner"></div>Analyzing file...</div>';
+        moveBtn.disabled = true;
+
+        try {
+            const response = await fetch('/organize/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Analysis failed');
+            }
+
+            currentAnalysis = await response.json();
+            selectedTmdbMatch = null;
+            renderAnalysisForm();
+            moveBtn.disabled = false;
+        } catch (error) {
+            modalBody.innerHTML = `<div class="empty-state" style="color: var(--error);">Error: ${escapeHtml(error.message)}</div>`;
+        }
+    }
+
+    // Render the analysis form
+    function renderAnalysisForm() {
+        const modalBody = document.getElementById('modal-body');
+        const analysis = currentAnalysis;
+
+        let html = `
+            <div class="analysis-section">
+                <div class="analysis-header">
+                    <span class="media-type-badge">${analysis.media_type}</span>
+                    <span class="confidence-badge confidence-${analysis.confidence}">${analysis.confidence} confidence</span>
+                </div>
+            </div>
+        `;
+
+        // TMDB matches for video content
+        if (analysis.tmdb_matches && analysis.tmdb_matches.length > 0) {
+            html += `
+                <div class="tmdb-matches">
+                    <h4>TMDB Matches (click to use)</h4>
+                    <div class="tmdb-list">
+                        ${analysis.tmdb_matches.map((match, index) => `
+                            <div class="tmdb-card" onclick="selectTmdbMatch(${index})" data-index="${index}">
+                                ${match.poster_path
+                                    ? `<img class="tmdb-poster" src="${match.poster_path}" alt="${escapeHtml(match.title)}">`
+                                    : `<div class="tmdb-poster no-poster">&#127909;</div>`
+                                }
+                                <div class="tmdb-info">
+                                    <div class="tmdb-title">${escapeHtml(match.title)}</div>
+                                    <div class="tmdb-year">${match.year || 'Unknown year'}</div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Form fields based on media type
+        if (analysis.media_type === 'movie') {
+            html += `
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Title</label>
+                        <input type="text" class="input" id="meta-title" value="${escapeHtml(analysis.metadata.title || '')}" onchange="updatePreview()">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Year</label>
+                        <input type="number" class="input" id="meta-year" value="${analysis.metadata.year || ''}" onchange="updatePreview()">
+                    </div>
+                </div>
+            `;
+        } else if (analysis.media_type === 'tv') {
+            html += `
+                <div class="form-group">
+                    <label class="form-label">Show Title</label>
+                    <input type="text" class="input" id="meta-title" value="${escapeHtml(analysis.metadata.title || '')}" onchange="updatePreview()">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Season</label>
+                        <input type="number" class="input" id="meta-season" value="${analysis.metadata.season || ''}" onchange="updatePreview()">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Episode</label>
+                        <input type="number" class="input" id="meta-episode" value="${analysis.metadata.episode || ''}" onchange="updatePreview()">
+                    </div>
+                </div>
+            `;
+        } else if (analysis.media_type === 'music') {
+            html += `
+                <div class="form-group">
+                    <label class="form-label">Artist</label>
+                    <input type="text" class="input" id="meta-artist" value="${escapeHtml(analysis.metadata.artist || '')}" onchange="updatePreview()">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Album</label>
+                    <input type="text" class="input" id="meta-album" value="${escapeHtml(analysis.metadata.album || '')}" onchange="updatePreview()">
+                </div>
+            `;
+        }
+
+        // Files in folder
+        if (analysis.files && analysis.files.length > 0) {
+            html += `
+                <div class="files-section">
+                    <h4>Files to move (${analysis.files.length})</h4>
+                    <div class="files-list">
+                        ${analysis.files.map(f => `<div class="files-list-item">${escapeHtml(f.name)}</div>`).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Destination preview
+        html += `
+            <div class="form-group">
+                <label class="form-label">Destination</label>
+                <div class="destination-preview" id="destination-preview">Loading...</div>
+            </div>
+        `;
+
+        modalBody.innerHTML = html;
+        updatePreview();
+    }
+
+    // Select a TMDB match
+    function selectTmdbMatch(index) {
+        const match = currentAnalysis.tmdb_matches[index];
+        selectedTmdbMatch = match;
+
+        // Update UI
+        document.querySelectorAll('.tmdb-card').forEach(card => card.classList.remove('selected'));
+        document.querySelector(`.tmdb-card[data-index="${index}"]`).classList.add('selected');
+
+        // Update form fields
+        const titleInput = document.getElementById('meta-title');
+        const yearInput = document.getElementById('meta-year');
+
+        if (titleInput) titleInput.value = match.title;
+        if (yearInput) yearInput.value = match.year || '';
+
+        updatePreview();
+    }
+
+    // Update destination preview
+    async function updatePreview() {
+        const preview = document.getElementById('destination-preview');
+        const metadata = getFormMetadata();
+
+        try {
+            const response = await fetch('/organize/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    source_path: currentAnalysis.path,
+                    media_type: currentAnalysis.media_type,
+                    metadata
+                })
+            });
+
+            const data = await response.json();
+            preview.textContent = data.destination;
+        } catch (error) {
+            preview.textContent = 'Error calculating destination';
+        }
+    }
+
+    // Get metadata from form
+    function getFormMetadata() {
+        const metadata = {};
+        const type = currentAnalysis.media_type;
+
+        if (type === 'movie') {
+            metadata.title = document.getElementById('meta-title')?.value || '';
+            metadata.year = parseInt(document.getElementById('meta-year')?.value) || null;
+        } else if (type === 'tv') {
+            metadata.title = document.getElementById('meta-title')?.value || '';
+            metadata.season = parseInt(document.getElementById('meta-season')?.value) || null;
+            metadata.episode = parseInt(document.getElementById('meta-episode')?.value) || null;
+        } else if (type === 'music') {
+            metadata.artist = document.getElementById('meta-artist')?.value || '';
+            metadata.album = document.getElementById('meta-album')?.value || '';
+        }
+
+        return metadata;
+    }
+
+    // Move file to library
+    async function moveFile() {
+        const moveBtn = document.getElementById('move-btn');
+        moveBtn.disabled = true;
+        moveBtn.textContent = 'Moving...';
+
+        try {
+            const response = await fetch('/organize/move', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    source_path: currentAnalysis.path,
+                    media_type: currentAnalysis.media_type,
+                    metadata: getFormMetadata()
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Move failed');
+            }
+
+            const result = await response.json();
+            showToast(`Moved ${result.files_moved.length} file(s) to ${result.destination}`, 'success');
+            closeModal();
+            refreshFileList();
+        } catch (error) {
+            showToast('Error: ' + error.message, 'error');
+            moveBtn.disabled = false;
+            moveBtn.textContent = 'Move to Library';
+        }
+    }
+
+    // Close modal
+    function closeModal() {
+        document.getElementById('analyze-modal').classList.remove('active');
+        currentAnalysis = null;
+        selectedTmdbMatch = null;
+    }
+
+    // Show toast notification
+    function showToast(message, type = 'info') {
+        const container = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.textContent = message;
+        container.appendChild(toast);
+
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateX(100%)';
+            setTimeout(() => toast.remove(), 200);
+        }, 4000);
+    }
+
+    // Escape HTML
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Close modal on escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeModal();
+    });
+
+    // Close modal on overlay click
+    document.getElementById('analyze-modal').addEventListener('click', (e) => {
+        if (e.target.classList.contains('modal-overlay')) closeModal();
+    });
+</script>
+{% endblock %}

@@ -116,6 +116,15 @@ main {
     background-color: var(--text-muted);
 }
 
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+    background-color: inherit;
+}
+
 .input {
     width: 100%;
     padding: 0.75rem 1rem;
