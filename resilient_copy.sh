@@ -43,15 +43,23 @@ log() {
     echo -e "$message" | tee -a "$LOG_FILE"
 }
 
+IO_TIMEOUT=30  # seconds to wait before assuming drive is dead
+
 check_mount() {
     local dir="$1"
     if ! mountpoint -q "$dir" 2>/dev/null; then
-        # Not a mountpoint, check if directory is accessible
-        if [[ ! -d "$dir" ]] || ! ls "$dir" &>/dev/null; then
+        # Not a mountpoint, check if directory is accessible (with timeout)
+        if [[ ! -d "$dir" ]] || ! timeout "$IO_TIMEOUT" ls "$dir" &>/dev/null; then
             return 1
         fi
     fi
     return 0
+}
+
+# Wrapper for commands that might hang on bad I/O
+run_with_timeout() {
+    timeout "$IO_TIMEOUT" "$@"
+    return $?
 }
 
 # Validate arguments
@@ -106,10 +114,10 @@ fi
 process_directory() {
     local dir="$1"
 
-    # Try to list directory contents
+    # Try to list directory contents (with timeout)
     local entries
-    if ! entries=$(ls -A "$dir" 2>&1); then
-        log "WARNING: Cannot read directory: $dir (I/O error?)"
+    if ! entries=$(timeout "$IO_TIMEOUT" ls -A "$dir" 2>&1); then
+        log "WARNING: Cannot read directory: $dir (I/O error or timeout)"
         return 1
     fi
 
@@ -166,20 +174,34 @@ process_file() {
     # Get source file size for progress
     local source_size=$(stat -c%s "$source_file" 2>/dev/null || stat -f%z "$source_file" 2>/dev/null || echo "unknown")
 
-    # Copy the file with rsync for better handling
-    if rsync -a --progress --inplace "$source_file" "$dest_file" 2>&1; then
-        # Verify with checksum
+    # Copy the file with rsync for better handling (with long timeout for large files)
+    # Use 5 min timeout for copy, scales with file size
+    local copy_timeout=300
+    local rsync_result
+    timeout "$copy_timeout" rsync -a --progress --inplace "$source_file" "$dest_file" 2>&1
+    rsync_result=$?
+
+    # Check for timeout (exit code 124) or kill (137)
+    if [[ $rsync_result -eq 124 ]] || [[ $rsync_result -eq 137 ]]; then
+        log "ERROR: Copy timed out for $relative_path - drive may be unresponsive"
+        log "Processed $copied_files files before failure"
+        log "Run the script again after checking/remounting the drive"
+        exit 2
+    fi
+
+    if [[ $rsync_result -eq 0 ]]; then
+        # Verify with checksum (with timeout)
         echo -n "  Verifying checksum... "
 
-        local source_md5=$(md5sum "$source_file" 2>/dev/null | cut -d' ' -f1 || md5 -q "$source_file" 2>/dev/null)
-        local dest_md5=$(md5sum "$dest_file" 2>/dev/null | cut -d' ' -f1 || md5 -q "$dest_file" 2>/dev/null)
+        local source_md5=$(timeout "$IO_TIMEOUT" md5sum "$source_file" 2>/dev/null | cut -d' ' -f1)
+        local dest_md5=$(timeout "$IO_TIMEOUT" md5sum "$dest_file" 2>/dev/null | cut -d' ' -f1)
 
         if [[ "$source_md5" == "$dest_md5" ]] && [[ -n "$source_md5" ]]; then
             echo -e "${GREEN}OK${NC}"
 
-            # Delete source file
+            # Delete source file (with timeout)
             echo -n "  Deleting source... "
-            if rm "$source_file" 2>/dev/null; then
+            if timeout "$IO_TIMEOUT" rm "$source_file" 2>/dev/null; then
                 echo -e "${GREEN}OK${NC}"
 
                 # Record success
