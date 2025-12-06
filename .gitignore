@@ -145,3 +145,6 @@ temp/
 # Media downloads (runtime data)
 downloads/
 media/
+
+# claude
+.claude/settings.local.json
