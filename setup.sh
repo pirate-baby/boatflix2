@@ -214,6 +214,17 @@ setup_external_hdd() {
     fi
     log INFO "Drive UUID: $uuid"
 
+    # Determine mount options based on filesystem type
+    local mount_opts="defaults,nofail,x-systemd.device-timeout=30"
+    local uid=$(id -u)
+    local gid=$(id -g)
+
+    # FAT/exFAT filesystems don't support Unix permissions, so set ownership at mount time
+    if [[ "$fstype" == "vfat" || "$fstype" == "exfat" ]]; then
+        mount_opts="$mount_opts,uid=$uid,gid=$gid,umask=0022"
+        log INFO "Using mount options for $fstype filesystem (uid=$uid, gid=$gid)"
+    fi
+
     # Check if already in fstab
     if grep -q "$uuid" /etc/fstab; then
         log INFO "Drive already configured in /etc/fstab"
@@ -223,7 +234,7 @@ setup_external_hdd() {
         sudo cp /etc/fstab /etc/fstab.backup.$(date +%Y%m%d%H%M%S)
 
         # Add fstab entry
-        echo "UUID=$uuid  $MEDIA_MOUNT  $fstype  defaults,nofail,x-systemd.device-timeout=30  0  2" | sudo tee -a /etc/fstab
+        echo "UUID=$uuid  $MEDIA_MOUNT  $fstype  $mount_opts  0  2" | sudo tee -a /etc/fstab
         log INFO "Added fstab entry for auto-mount"
     fi
 
@@ -232,11 +243,14 @@ setup_external_hdd() {
         log INFO "$MEDIA_MOUNT is already mounted"
     else
         log INFO "Mounting drive..."
+        sudo systemctl daemon-reload
         sudo mount "$MEDIA_MOUNT"
     fi
 
-    # Set ownership
-    sudo chown -R "$USER:$USER" "$MEDIA_MOUNT"
+    # Set ownership (only works on filesystems that support Unix permissions)
+    if [[ "$fstype" != "vfat" && "$fstype" != "exfat" ]]; then
+        sudo chown -R "$USER:$USER" "$MEDIA_MOUNT"
+    fi
 
     # Create Jellyfin folder structure
     log INFO "Creating Jellyfin folder structure..."
