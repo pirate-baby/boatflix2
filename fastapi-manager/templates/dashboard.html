@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Media Manager{% endblock %}
+{% block nav_home %}active{% endblock %}
+
+{% block content %}
+<hgroup>
+    <h1>Dashboard</h1>
+    <p>Quick access to media management tools</p>
+</hgroup>
+
+<!-- Quick Download Form -->
+<article>
+    <header>
+        <h2>Quick Download</h2>
+    </header>
+    <form id="quick-download-form" onsubmit="analyzeUrl(event)">
+        <div class="grid">
+            <input
+                type="url"
+                id="quick-url"
+                name="url"
+                placeholder="Paste YouTube, Vimeo, or other video URL..."
+                required
+                autocomplete="off"
+            >
+            <button type="submit" id="analyze-btn">
+                <span class="btn-text">Analyze</span>
+                <span class="btn-loading" style="display: none;" aria-busy="true"></span>
+            </button>
+        </div>
+    </form>
+    <div id="quick-analysis-result"></div>
+</article>
+
+<!-- Status Cards -->
+<div class="grid">
+    <!-- Downloads Status -->
+    <article>
+        <header>
+            <hgroup>
+                <h3>Downloads</h3>
+                <p>Current download status</p>
+            </hgroup>
+        </header>
+        <div id="download-status" hx-get="/api/download/queue" hx-trigger="load, every 5s" hx-swap="innerHTML">
+            <p aria-busy="true">Loading...</p>
+        </div>
+        <footer>
+            <a href="/manager/download" role="button" class="outline">View All Downloads</a>
+        </footer>
+    </article>
+
+    <!-- Pending Organization -->
+    <article>
+        <header>
+            <hgroup>
+                <h3>Pending Organization</h3>
+                <p>Files in Downloads folder</p>
+            </hgroup>
+        </header>
+        <div id="pending-count" hx-get="/manager/api/pending-count" hx-trigger="load, every 30s" hx-swap="innerHTML">
+            <p aria-busy="true">Loading...</p>
+        </div>
+        <footer>
+            <a href="/manager/organize" role="button" class="outline">Organize Files</a>
+        </footer>
+    </article>
+
+    <!-- Sync Status -->
+    <article>
+        <header>
+            <hgroup>
+                <h3>Cloud Sync</h3>
+                <p>Last sync status</p>
+            </hgroup>
+        </header>
+        <div id="sync-status" hx-get="/manager/api/sync-summary" hx-trigger="load, every 60s" hx-swap="innerHTML">
+            <p aria-busy="true">Loading...</p>
+        </div>
+        <footer>
+            <a href="/manager/sync" role="button" class="outline">View Sync</a>
+        </footer>
+    </article>
+</div>
+
+<!-- Recent Activity -->
+<article>
+    <header>
+        <h2>Recent Activity</h2>
+    </header>
+    <div id="recent-activity" hx-get="/api/download/history?limit=5" hx-trigger="load" hx-swap="innerHTML">
+        <p aria-busy="true">Loading recent downloads...</p>
+    </div>
+</article>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Quick analyze URL
+    async function analyzeUrl(event) {
+        event.preventDefault();
+        const urlInput = document.getElementById('quick-url');
+        const btn = document.getElementById('analyze-btn');
+        const resultDiv = document.getElementById('quick-analysis-result');
+
+        const url = urlInput.value.trim();
+        if (!url) return;
+
+        // Show loading state
+        btn.querySelector('.btn-text').style.display = 'none';
+        btn.querySelector('.btn-loading').style.display = 'inline-block';
+        btn.disabled = true;
+        resultDiv.innerHTML = '';
+
+        try {
+            const response = await fetch('/api/download/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Analysis failed');
+            }
+
+            const data = await response.json();
+            showQuickAnalysisResult(data);
+        } catch (error) {
+            resultDiv.innerHTML = `<p class="error-text">Error: ${escapeHtml(error.message)}</p>`;
+            showToast(error.message, 'error');
+        } finally {
+            btn.querySelector('.btn-text').style.display = 'inline';
+            btn.querySelector('.btn-loading').style.display = 'none';
+            btn.disabled = false;
+        }
+    }
+
+    function showQuickAnalysisResult(data) {
+        const resultDiv = document.getElementById('quick-analysis-result');
+
+        const confidenceClass = data.confidence >= 0.8 ? 'success' : data.confidence >= 0.5 ? 'warning' : 'error';
+
+        resultDiv.innerHTML = `
+            <div class="analysis-result">
+                <div class="result-header">
+                    ${data.thumbnail ? `<img src="${data.thumbnail}" alt="Thumbnail" class="result-thumbnail">` : ''}
+                    <div class="result-info">
+                        <h4>${escapeHtml(data.raw_title || 'Unknown')}</h4>
+                        <p>
+                            <span class="badge badge-${data.media_type}">${data.media_type}</span>
+                            <span class="badge badge-${confidenceClass}">${Math.round(data.confidence * 100)}% confidence</span>
+                            ${data.duration ? `<span class="badge">${formatDuration(data.duration)}</span>` : ''}
+                        </p>
+                    </div>
+                </div>
+                <div class="result-actions">
+                    <a href="/manager/download?url=${encodeURIComponent(data.url)}" role="button">
+                        Continue to Download
+                    </a>
+                </div>
+            </div>
+        `;
+    }
+
+    function formatDuration(seconds) {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = seconds % 60;
+        if (h > 0) {
+            return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+        return `${m}:${s.toString().padStart(2, '0')}`;
+    }
+
+    // HTMX event handlers for formatting API responses
+    document.body.addEventListener('htmx:afterSwap', function(evt) {
+        if (evt.detail.target.id === 'download-status') {
+            formatDownloadStatus(evt.detail.target, evt.detail.xhr.response);
+        } else if (evt.detail.target.id === 'recent-activity') {
+            formatRecentActivity(evt.detail.target, evt.detail.xhr.response);
+        }
+    });
+
+    function formatDownloadStatus(target, response) {
+        try {
+            const data = JSON.parse(response);
+            let html = '';
+
+            if (data.active) {
+                html += `
+                    <div class="status-item">
+                        <span class="status-indicator status-active"></span>
+                        <span class="status-text">${escapeHtml(data.active.url.substring(0, 40))}...</span>
+                        <span class="status-progress">${data.active.progress || 0}%</span>
+                    </div>
+                `;
+            }
+
+            if (data.pending && data.pending.length > 0) {
+                html += `<p>${data.pending.length} item(s) in queue</p>`;
+            }
+
+            if (!data.active && (!data.pending || data.pending.length === 0)) {
+                html = '<p class="muted">No active downloads</p>';
+            }
+
+            target.innerHTML = html;
+        } catch (e) {
+            target.innerHTML = '<p class="muted">Unable to load status</p>';
+        }
+    }
+
+    function formatRecentActivity(target, response) {
+        try {
+            const data = JSON.parse(response);
+            if (!data.downloads || data.downloads.length === 0) {
+                target.innerHTML = '<p class="muted">No recent downloads</p>';
+                return;
+            }
+
+            const html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Title</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${data.downloads.map(d => `
+                            <tr>
+                                <td>${escapeHtml(d.url.substring(0, 50))}${d.url.length > 50 ? '...' : ''}</td>
+                                <td><span class="badge badge-${d.media_type}">${d.media_type}</span></td>
+                                <td><span class="badge badge-${d.status}">${d.status}</span></td>
+                                <td>${formatRelativeTime(d.completed_at || d.created_at)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            target.innerHTML = html;
+        } catch (e) {
+            target.innerHTML = '<p class="muted">Unable to load activity</p>';
+        }
+    }
+
+    function formatRelativeTime(isoString) {
+        if (!isoString) return 'Unknown';
+        const date = new Date(isoString);
+        const now = new Date();
+        const diff = (now - date) / 1000;
+
+        if (diff < 60) return 'Just now';
+        if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+        return `${Math.floor(diff / 86400)}d ago`;
+    }
+
+    // Keyboard shortcut: Enter to submit
+    document.getElementById('quick-url').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            document.getElementById('quick-download-form').dispatchEvent(new Event('submit'));
+        }
+    });
+</script>
+{% endblock %}

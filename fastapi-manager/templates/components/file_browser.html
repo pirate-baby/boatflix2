@@ -1,0 +1,143 @@
+{# File browser component for Downloads folder #}
+{# Usage: {% include "components/file_browser.html" %} #}
+
+{% macro file_icon(type, is_directory) %}
+{% if is_directory %}📁{% elif type == 'video' %}🎬{% elif type == 'audio' %}🎵{% else %}📄{% endif %}
+{% endmacro %}
+
+{% macro format_size(size_bytes) %}
+{% if size_bytes >= 1073741824 %}
+{{ "%.2f"|format(size_bytes / 1073741824) }} GB
+{% elif size_bytes >= 1048576 %}
+{{ "%.1f"|format(size_bytes / 1048576) }} MB
+{% elif size_bytes >= 1024 %}
+{{ "%.0f"|format(size_bytes / 1024) }} KB
+{% else %}
+{{ size_bytes }} B
+{% endif %}
+{% endmacro %}
+
+{% macro render_file_row(item, show_checkbox=False) %}
+<tr class="file-row {{ 'folder' if item.is_directory else '' }}" data-path="{{ item.path }}">
+    {% if show_checkbox %}
+    <td class="checkbox-col">
+        <input type="checkbox"
+               class="file-checkbox"
+               value="{{ item.path }}"
+               onchange="toggleFileSelect(this)">
+    </td>
+    {% endif %}
+    <td class="file-name-col">
+        <span class="file-icon">{{ file_icon(item.type, item.is_directory) }}</span>
+        <span class="file-name" title="{{ item.name }}">{{ item.name }}</span>
+    </td>
+    <td class="file-type-col">
+        <span class="badge badge-{{ item.type }}">
+            {{ 'folder' if item.is_directory else item.type }}
+        </span>
+    </td>
+    <td class="file-size-col">{{ item.size_formatted or format_size(item.size_bytes or 0) }}</td>
+    <td class="file-action-col">
+        <button class="outline small" onclick="analyzeItem('{{ item.path }}')">
+            Organize
+        </button>
+    </td>
+</tr>
+{% endmacro %}
+
+{% macro render_file_table(items, show_checkbox=False) %}
+{% if items and items|length > 0 %}
+<table class="file-table striped">
+    <thead>
+        <tr>
+            {% if show_checkbox %}
+            <th class="checkbox-col">
+                <input type="checkbox"
+                       id="select-all-files"
+                       onchange="toggleAllFiles(this.checked)">
+            </th>
+            {% endif %}
+            <th>Name</th>
+            <th>Type</th>
+            <th>Size</th>
+            <th>Action</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in items %}
+            {{ render_file_row(item, show_checkbox) }}
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="muted empty-message">No files in Downloads folder</p>
+{% endif %}
+{% endmacro %}
+
+{% macro render_file_browser(items, downloads_path, show_batch_mode=True) %}
+<div class="file-browser">
+    <div class="file-browser-header">
+        <div class="header-info">
+            <h3>Downloads</h3>
+            <code class="path-display">{{ downloads_path }}</code>
+        </div>
+        <div class="header-actions">
+            {% if show_batch_mode %}
+            <label class="batch-toggle">
+                <input type="checkbox" id="batch-mode" onchange="toggleBatchMode(this.checked)">
+                Batch Mode
+            </label>
+            {% endif %}
+            <button class="outline" onclick="refreshFileList()">
+                Refresh
+            </button>
+        </div>
+    </div>
+
+    <div class="file-list-container" id="file-list-container">
+        {{ render_file_table(items, False) }}
+    </div>
+
+    {% if show_batch_mode %}
+    <div class="batch-actions" id="batch-actions" style="display: none;">
+        <span class="batch-count">
+            <span id="selected-count">0</span> items selected
+        </span>
+        <div class="batch-buttons">
+            <button class="secondary" onclick="clearSelection()">Clear</button>
+            <button onclick="batchOrganize()">Organize Selected</button>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endmacro %}
+
+{# Compact file list for modals #}
+{% macro render_files_list(files) %}
+{% if files and files|length > 0 %}
+<details class="files-details">
+    <summary>Files to move ({{ files|length }})</summary>
+    <div class="files-list">
+        {% for file in files %}
+        <div class="file-entry">
+            <span class="file-icon">{{ file_icon(file.type or 'unknown', False) }}</span>
+            <code>{{ file.name }}</code>
+            {% if file.size_formatted %}
+            <span class="file-size">{{ file.size_formatted }}</span>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</details>
+{% endif %}
+{% endmacro %}
+
+{# Destination path preview #}
+{% macro render_destination_preview(destination) %}
+<div class="destination-preview">
+    <label>Destination</label>
+    <div class="destination-path">
+        <code id="destination-path">{{ destination or 'Calculating...' }}</code>
+    </div>
+</div>
+{% endmacro %}

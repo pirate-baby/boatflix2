@@ -1,0 +1,139 @@
+{# Reusable metadata form partial #}
+{# Usage: {% include "components/metadata_form.html" with media_type=media_type, metadata=metadata %} #}
+
+{% macro render_movie_fields(metadata) %}
+<div class="grid">
+    <label>
+        Title
+        <input type="text" name="title" value="{{ metadata.title or '' }}" required>
+    </label>
+    <label>
+        Year
+        <input type="number" name="year" value="{{ metadata.year or '' }}" min="1900" max="2100">
+    </label>
+</div>
+<label>
+    Description
+    <textarea name="description" rows="2">{{ metadata.description or '' }}</textarea>
+</label>
+{% endmacro %}
+
+{% macro render_tv_fields(metadata) %}
+<label>
+    Show Title
+    <input type="text" name="show" value="{{ metadata.show or metadata.title or '' }}" required>
+</label>
+<div class="grid">
+    <label>
+        Year
+        <input type="number" name="year" value="{{ metadata.year or '' }}" min="1900" max="2100">
+    </label>
+    <label>
+        Season
+        <input type="number" name="season" value="{{ metadata.season or 1 }}" min="1" required>
+    </label>
+    <label>
+        Episode
+        <input type="number" name="episode" value="{{ metadata.episode or '' }}" min="1">
+    </label>
+</div>
+<label>
+    Episode Title
+    <input type="text" name="episode_title" value="{{ metadata.episode_title or '' }}">
+</label>
+{% endmacro %}
+
+{% macro render_music_fields(metadata) %}
+<div class="grid">
+    <label>
+        Artist
+        <input type="text" name="artist" value="{{ metadata.artist or '' }}" required>
+    </label>
+    <label>
+        Album
+        <input type="text" name="album" value="{{ metadata.album or '' }}">
+    </label>
+</div>
+<div class="grid">
+    <label>
+        Track Title
+        <input type="text" name="track" value="{{ metadata.track or '' }}" required>
+    </label>
+    <label>
+        Track Number
+        <input type="number" name="track_number" value="{{ metadata.track_number or '' }}" min="1">
+    </label>
+    <label>
+        Release Year
+        <input type="number" name="release_year" value="{{ metadata.release_year or '' }}" min="1900" max="2100">
+    </label>
+</div>
+{% endmacro %}
+
+{% macro render_metadata_form(media_type, metadata, form_id="metadata-form") %}
+<form id="{{ form_id }}" class="metadata-form">
+    <label>
+        Media Type
+        <select name="media_type" onchange="updateMetadataFields(this.value)">
+            <option value="movie" {{ 'selected' if media_type == 'movie' else '' }}>Movie</option>
+            <option value="tv" {{ 'selected' if media_type == 'tv' else '' }}>TV Show</option>
+            <option value="music" {{ 'selected' if media_type == 'music' else '' }}>Music</option>
+        </select>
+    </label>
+
+    <div id="metadata-fields">
+        {% if media_type == 'movie' %}
+            {{ render_movie_fields(metadata) }}
+        {% elif media_type == 'tv' %}
+            {{ render_tv_fields(metadata) }}
+        {% elif media_type == 'music' %}
+            {{ render_music_fields(metadata) }}
+        {% endif %}
+    </div>
+</form>
+{% endmacro %}
+
+{# Confidence indicator #}
+{% macro render_confidence(confidence, show_label=True) %}
+{% set conf_class = 'success' if confidence >= 0.8 else ('warning' if confidence >= 0.5 else 'error') %}
+{% set conf_label = 'high' if confidence >= 0.8 else ('medium' if confidence >= 0.5 else 'low') %}
+<span class="badge badge-{{ conf_class }}">
+    {% if show_label %}{{ conf_label }} {% endif %}{{ (confidence * 100)|int }}%
+</span>
+{% endmacro %}
+
+{# Media type badge #}
+{% macro render_media_type_badge(media_type) %}
+<span class="badge badge-{{ media_type }}">{{ media_type }}</span>
+{% endmacro %}
+
+{# TMDB match card #}
+{% macro render_tmdb_card(match, index, selected=False) %}
+<div class="tmdb-card {{ 'selected' if selected else '' }}"
+     onclick="selectTmdbMatch({{ index }})"
+     data-idx="{{ index }}">
+    {% if match.poster_path %}
+        <img src="{{ match.poster_path }}" alt="{{ match.title }}" loading="lazy">
+    {% else %}
+        <div class="poster-placeholder">🎬</div>
+    {% endif %}
+    <div class="tmdb-info">
+        <span class="tmdb-title">{{ match.title }}</span>
+        <span class="tmdb-year">{{ match.year or 'Unknown' }}</span>
+    </div>
+</div>
+{% endmacro %}
+
+{# TMDB matches grid #}
+{% macro render_tmdb_matches(matches) %}
+{% if matches and matches|length > 0 %}
+<div class="tmdb-section">
+    <h4>TMDB Matches</h4>
+    <div class="tmdb-grid">
+        {% for match in matches %}
+            {{ render_tmdb_card(match, loop.index0, loop.first) }}
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+{% endmacro %}

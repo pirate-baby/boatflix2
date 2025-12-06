@@ -1,0 +1,461 @@
+{% extends "base.html" %}
+
+{% block title %}Download - Media Manager{% endblock %}
+{% block nav_download %}active{% endblock %}
+
+{% block content %}
+<hgroup>
+    <h1>Download</h1>
+    <p>Download media from YouTube, Vimeo, and other sources</p>
+</hgroup>
+
+<!-- URL Input & Analysis -->
+<article>
+    <header>
+        <h2>New Download</h2>
+    </header>
+    <form id="analyze-form" onsubmit="analyzeUrl(event)">
+        <div class="grid">
+            <input
+                type="url"
+                id="url-input"
+                name="url"
+                placeholder="Paste video URL here..."
+                value="{{ prefill_url or '' }}"
+                required
+                autocomplete="off"
+            >
+            <button type="submit" id="analyze-btn">
+                <span class="btn-text">Analyze</span>
+                <span class="btn-loading" style="display: none;" aria-busy="true"></span>
+            </button>
+        </div>
+    </form>
+
+    <!-- Analysis Result Form -->
+    <div id="analysis-container" style="display: none;">
+        <hr>
+        <div id="analysis-result"></div>
+    </div>
+</article>
+
+<!-- Active Downloads -->
+<article>
+    <header>
+        <hgroup>
+            <h2>Active Downloads</h2>
+            <p>Currently downloading</p>
+        </hgroup>
+    </header>
+    <div id="active-downloads" hx-get="/api/download/queue" hx-trigger="load, every 3s" hx-swap="innerHTML">
+        <p aria-busy="true">Loading...</p>
+    </div>
+</article>
+
+<!-- Download History -->
+<article>
+    <header>
+        <hgroup>
+            <h2>History</h2>
+            <p>Completed downloads</p>
+        </hgroup>
+    </header>
+    <div id="download-history" hx-get="/api/download/history?limit=20" hx-trigger="load" hx-swap="innerHTML">
+        <p aria-busy="true">Loading history...</p>
+    </div>
+</article>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentAnalysis = null;
+
+    // Auto-analyze if URL is prefilled
+    document.addEventListener('DOMContentLoaded', () => {
+        const urlInput = document.getElementById('url-input');
+        if (urlInput.value) {
+            document.getElementById('analyze-form').dispatchEvent(new Event('submit'));
+        }
+    });
+
+    async function analyzeUrl(event) {
+        event.preventDefault();
+        const urlInput = document.getElementById('url-input');
+        const btn = document.getElementById('analyze-btn');
+        const container = document.getElementById('analysis-container');
+        const resultDiv = document.getElementById('analysis-result');
+
+        const url = urlInput.value.trim();
+        if (!url) return;
+
+        // Show loading
+        btn.querySelector('.btn-text').style.display = 'none';
+        btn.querySelector('.btn-loading').style.display = 'inline-block';
+        btn.disabled = true;
+        container.style.display = 'none';
+
+        try {
+            const response = await fetch('/api/download/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Analysis failed');
+            }
+
+            currentAnalysis = await response.json();
+            renderAnalysisForm();
+            container.style.display = 'block';
+        } catch (error) {
+            showToast(error.message, 'error');
+        } finally {
+            btn.querySelector('.btn-text').style.display = 'inline';
+            btn.querySelector('.btn-loading').style.display = 'none';
+            btn.disabled = false;
+        }
+    }
+
+    function renderAnalysisForm() {
+        const resultDiv = document.getElementById('analysis-result');
+        const data = currentAnalysis;
+
+        const confidenceClass = data.confidence >= 0.8 ? 'success' : data.confidence >= 0.5 ? 'warning' : 'error';
+
+        let html = `
+            <div class="analysis-header grid">
+                <div>
+                    ${data.thumbnail ? `<img src="${data.thumbnail}" alt="Thumbnail" class="analysis-thumbnail">` : '<div class="analysis-thumbnail placeholder">No Thumbnail</div>'}
+                </div>
+                <div class="analysis-info">
+                    <h3>${escapeHtml(data.raw_title || 'Unknown Title')}</h3>
+                    <p>
+                        <span class="badge badge-${confidenceClass}">${Math.round(data.confidence * 100)}% confidence</span>
+                        ${data.duration ? `<span class="badge">Duration: ${formatDuration(data.duration)}</span>` : ''}
+                    </p>
+                </div>
+            </div>
+
+            <form id="download-form" onsubmit="submitDownload(event)">
+                <div class="grid">
+                    <label>
+                        Media Type
+                        <select id="media-type" name="media_type" onchange="updateFormFields()">
+                            <option value="movie" ${data.media_type === 'movie' ? 'selected' : ''}>Movie</option>
+                            <option value="tv" ${data.media_type === 'tv' ? 'selected' : ''}>TV Show</option>
+                            <option value="music" ${data.media_type === 'music' ? 'selected' : ''}>Music</option>
+                        </select>
+                    </label>
+                </div>
+
+                <div id="metadata-fields"></div>
+
+                <button type="submit" id="download-btn">
+                    <span class="btn-text">Start Download</span>
+                    <span class="btn-loading" style="display: none;" aria-busy="true"></span>
+                </button>
+            </form>
+        `;
+
+        resultDiv.innerHTML = html;
+        updateFormFields();
+    }
+
+    function updateFormFields() {
+        const type = document.getElementById('media-type').value;
+        const fieldsDiv = document.getElementById('metadata-fields');
+        const data = currentAnalysis;
+        const meta = data.metadata || {};
+
+        let html = '';
+
+        if (type === 'movie') {
+            html = `
+                <div class="grid">
+                    <label>
+                        Title
+                        <input type="text" id="meta-title" name="title" value="${escapeHtml(meta.title || data.raw_title || '')}" required>
+                    </label>
+                    <label>
+                        Year
+                        <input type="number" id="meta-year" name="year" value="${meta.year || ''}" min="1900" max="2100">
+                    </label>
+                </div>
+                <label>
+                    Description
+                    <textarea id="meta-description" name="description" rows="2">${escapeHtml(meta.description || '')}</textarea>
+                </label>
+            `;
+        } else if (type === 'tv') {
+            html = `
+                <label>
+                    Show Title
+                    <input type="text" id="meta-show" name="show" value="${escapeHtml(meta.show || meta.title || data.raw_title || '')}" required>
+                </label>
+                <div class="grid">
+                    <label>
+                        Year
+                        <input type="number" id="meta-year" name="year" value="${meta.year || ''}" min="1900" max="2100">
+                    </label>
+                    <label>
+                        Season
+                        <input type="number" id="meta-season" name="season" value="${meta.season || 1}" min="1" required>
+                    </label>
+                    <label>
+                        Episode
+                        <input type="number" id="meta-episode" name="episode" value="${meta.episode || ''}" min="1">
+                    </label>
+                </div>
+                <label>
+                    Episode Title
+                    <input type="text" id="meta-episode-title" name="episode_title" value="${escapeHtml(meta.episode_title || '')}">
+                </label>
+            `;
+        } else if (type === 'music') {
+            html = `
+                <div class="grid">
+                    <label>
+                        Artist
+                        <input type="text" id="meta-artist" name="artist" value="${escapeHtml(meta.artist || '')}" required>
+                    </label>
+                    <label>
+                        Album
+                        <input type="text" id="meta-album" name="album" value="${escapeHtml(meta.album || '')}">
+                    </label>
+                </div>
+                <div class="grid">
+                    <label>
+                        Track Title
+                        <input type="text" id="meta-track" name="track" value="${escapeHtml(meta.track || data.raw_title || '')}" required>
+                    </label>
+                    <label>
+                        Track Number
+                        <input type="number" id="meta-track-number" name="track_number" value="${meta.track_number || ''}" min="1">
+                    </label>
+                    <label>
+                        Release Year
+                        <input type="number" id="meta-release-year" name="release_year" value="${meta.release_year || ''}" min="1900" max="2100">
+                    </label>
+                </div>
+            `;
+        }
+
+        fieldsDiv.innerHTML = html;
+    }
+
+    async function submitDownload(event) {
+        event.preventDefault();
+        const form = event.target;
+        const btn = document.getElementById('download-btn');
+        const type = document.getElementById('media-type').value;
+
+        // Build metadata object
+        let metadata = {};
+        if (type === 'movie') {
+            metadata = {
+                title: form.title.value,
+                year: parseInt(form.year.value) || null,
+                description: form.description.value || null
+            };
+        } else if (type === 'tv') {
+            metadata = {
+                show: form.show.value,
+                year: parseInt(form.year.value) || null,
+                season: parseInt(form.season.value),
+                episode: parseInt(form.episode.value) || null,
+                episode_title: form.episode_title.value || null
+            };
+        } else if (type === 'music') {
+            metadata = {
+                artist: form.artist.value,
+                album: form.album.value || null,
+                track: form.track.value,
+                track_number: parseInt(form.track_number.value) || null,
+                release_year: parseInt(form.release_year.value) || null
+            };
+        }
+
+        // Show loading
+        btn.querySelector('.btn-text').style.display = 'none';
+        btn.querySelector('.btn-loading').style.display = 'inline-block';
+        btn.disabled = true;
+
+        try {
+            const response = await fetch('/api/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    url: currentAnalysis.url,
+                    media_type: type,
+                    metadata
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Download failed');
+            }
+
+            const result = await response.json();
+            showToast('Download started!', 'success');
+
+            // Clear the form
+            document.getElementById('url-input').value = '';
+            document.getElementById('analysis-container').style.display = 'none';
+            currentAnalysis = null;
+
+            // Refresh active downloads
+            htmx.trigger('#active-downloads', 'load');
+        } catch (error) {
+            showToast(error.message, 'error');
+        } finally {
+            btn.querySelector('.btn-text').style.display = 'inline';
+            btn.querySelector('.btn-loading').style.display = 'none';
+            btn.disabled = false;
+        }
+    }
+
+    function formatDuration(seconds) {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = seconds % 60;
+        if (h > 0) {
+            return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+        return `${m}:${s.toString().padStart(2, '0')}`;
+    }
+
+    // Format HTMX responses
+    document.body.addEventListener('htmx:afterSwap', function(evt) {
+        if (evt.detail.target.id === 'active-downloads') {
+            formatActiveDownloads(evt.detail.target, evt.detail.xhr.response);
+        } else if (evt.detail.target.id === 'download-history') {
+            formatDownloadHistory(evt.detail.target, evt.detail.xhr.response);
+        }
+    });
+
+    function formatActiveDownloads(target, response) {
+        try {
+            const data = JSON.parse(response);
+            let html = '';
+
+            if (data.active) {
+                const d = data.active;
+                html += `
+                    <div class="download-item active">
+                        <div class="download-info">
+                            <strong>${escapeHtml(d.url.substring(0, 60))}${d.url.length > 60 ? '...' : ''}</strong>
+                            <span class="badge badge-${d.media_type}">${d.media_type}</span>
+                            <span class="badge badge-downloading">Downloading</span>
+                        </div>
+                        <div class="download-progress">
+                            <progress value="${d.progress || 0}" max="100"></progress>
+                            <span>${d.progress || 0}%</span>
+                        </div>
+                        <button class="outline secondary small" onclick="cancelDownload('${d.id}')">Cancel</button>
+                    </div>
+                `;
+            }
+
+            if (data.pending && data.pending.length > 0) {
+                html += '<h4>Queue</h4>';
+                data.pending.forEach(d => {
+                    html += `
+                        <div class="download-item pending">
+                            <div class="download-info">
+                                <span>${escapeHtml(d.url.substring(0, 60))}${d.url.length > 60 ? '...' : ''}</span>
+                                <span class="badge badge-${d.media_type}">${d.media_type}</span>
+                                <span class="badge badge-pending">Pending</span>
+                            </div>
+                            <button class="outline secondary small" onclick="cancelDownload('${d.id}')">Cancel</button>
+                        </div>
+                    `;
+                });
+            }
+
+            if (!html) {
+                html = '<p class="muted">No active downloads</p>';
+            }
+
+            target.innerHTML = html;
+        } catch (e) {
+            target.innerHTML = '<p class="muted">Unable to load downloads</p>';
+        }
+    }
+
+    function formatDownloadHistory(target, response) {
+        try {
+            const data = JSON.parse(response);
+            if (!data.downloads || data.downloads.length === 0) {
+                target.innerHTML = '<p class="muted">No download history</p>';
+                return;
+            }
+
+            const html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>URL</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Date</th>
+                            <th>Output</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${data.downloads.map(d => `
+                            <tr>
+                                <td title="${escapeHtml(d.url)}">${escapeHtml(d.url.substring(0, 40))}${d.url.length > 40 ? '...' : ''}</td>
+                                <td><span class="badge badge-${d.media_type}">${d.media_type}</span></td>
+                                <td><span class="badge badge-${d.status}">${d.status}</span></td>
+                                <td>${formatDate(d.completed_at || d.created_at)}</td>
+                                <td>${d.output_path ? `<code>${escapeHtml(d.output_path.split('/').pop())}</code>` : '-'}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                ${data.total > data.downloads.length ? `<p class="muted">Showing ${data.downloads.length} of ${data.total} downloads</p>` : ''}
+            `;
+            target.innerHTML = html;
+        } catch (e) {
+            target.innerHTML = '<p class="muted">Unable to load history</p>';
+        }
+    }
+
+    function formatDate(isoString) {
+        if (!isoString) return '-';
+        const date = new Date(isoString);
+        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    async function cancelDownload(downloadId) {
+        if (!confirm('Cancel this download?')) return;
+
+        try {
+            const response = await fetch(`/api/download/${downloadId}`, {
+                method: 'DELETE'
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Cancel failed');
+            }
+
+            showToast('Download cancelled', 'success');
+            htmx.trigger('#active-downloads', 'load');
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+    }
+
+    // Keyboard shortcut
+    document.getElementById('url-input').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            document.getElementById('analyze-form').dispatchEvent(new Event('submit'));
+        }
+    });
+</script>
+{% endblock %}

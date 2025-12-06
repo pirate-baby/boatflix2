@@ -1,34 +1,50 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Media Manager{% endblock %}</title>
+
+    <!-- Pico CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+    <!-- Custom styles -->
     <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+
     {% block head %}{% endblock %}
 </head>
 <body>
-    <header>
-        <div class="container">
-            <h1>Media Manager</h1>
-            <nav>
-                <a href="/" class="{% block nav_home %}{% endblock %}">Home</a>
-                <a href="/download" class="{% block nav_download %}{% endblock %}">Downloads</a>
-                <a href="/sync" class="{% block nav_sync %}{% endblock %}">Sync</a>
-                <a href="/organize" class="{% block nav_organize %}{% endblock %}">Organize</a>
-            </nav>
-        </div>
-    </header>
+    <!-- Navigation -->
+    <nav class="container-fluid">
+        <ul>
+            <li><a href="/manager/" class="brand"><strong>Media Manager</strong></a></li>
+        </ul>
+        <ul>
+            <li><a href="/manager/" class="{% block nav_home %}{% endblock %}">Dashboard</a></li>
+            <li><a href="/manager/download" class="{% block nav_download %}{% endblock %}">Download</a></li>
+            <li><a href="/manager/organize" class="{% block nav_organize %}{% endblock %}">Organize</a></li>
+            <li><a href="/manager/sync" class="{% block nav_sync %}{% endblock %}">Sync</a></li>
+        </ul>
+    </nav>
 
-    <main>
-        <div class="container">
-            {% block content %}{% endblock %}
-        </div>
+    <!-- Main content -->
+    <main class="container">
+        {% block content %}{% endblock %}
     </main>
 
-    <footer>
-        <p>Media Manager &copy; 2024</p>
+    <!-- Footer -->
+    <footer class="container">
+        <small>Media Manager &copy; 2024</small>
     </footer>
+
+    <!-- Toast container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Common scripts -->
+    <script src="{{ url_for('static', path='app.js') }}"></script>
 
     {% block scripts %}{% endblock %}
 </body>

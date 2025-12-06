@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from config import settings
-from routers import download, sync, organize
+from routers import download, sync, organize, web
 from services import rclone
 from services.download_queue import download_queue
 
@@ -129,6 +129,7 @@ templates = Jinja2Templates(directory=BASE_DIR / "templates")
 app.include_router(download.router, prefix="/api/download", tags=["download"])
 app.include_router(sync.router, prefix="/api/sync", tags=["sync"])
 app.include_router(organize.router, prefix="/api/organize", tags=["organize"])
+app.include_router(web.router, prefix="/manager", tags=["web"])
 
 
 @app.get("/health")

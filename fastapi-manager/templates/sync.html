@@ -1,0 +1,320 @@
+{% extends "base.html" %}
+
+{% block title %}Sync - Media Manager{% endblock %}
+{% block nav_sync %}active{% endblock %}
+
+{% block content %}
+<hgroup>
+    <h1>Cloud Sync</h1>
+    <p>Bidirectional sync with rclone</p>
+</hgroup>
+
+<!-- Sync Status -->
+<article>
+    <header>
+        <div class="header-row">
+            <hgroup>
+                <h2>Status</h2>
+                <p>Current sync configuration and status</p>
+            </hgroup>
+            <div class="header-actions">
+                <button id="sync-btn" onclick="triggerSync()">
+                    <span class="btn-text">Sync Now</span>
+                    <span class="btn-loading" style="display: none;" aria-busy="true"></span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <div id="sync-status" hx-get="/api/sync/status" hx-trigger="load, every 10s" hx-swap="innerHTML">
+        <p aria-busy="true">Loading status...</p>
+    </div>
+</article>
+
+<!-- Schedule -->
+<article>
+    <header>
+        <h2>Schedule</h2>
+    </header>
+    <div id="schedule-info" hx-get="/scheduler/status" hx-trigger="load, every 30s" hx-swap="innerHTML">
+        <p aria-busy="true">Loading schedule...</p>
+    </div>
+</article>
+
+<!-- Sync Logs -->
+<article>
+    <header>
+        <div class="header-row">
+            <h2>Sync Logs</h2>
+            <button class="outline" onclick="refreshLogs()">Refresh</button>
+        </div>
+    </header>
+    <div id="sync-logs" hx-get="/api/sync/logs?lines=50" hx-trigger="load" hx-swap="innerHTML">
+        <p aria-busy="true">Loading logs...</p>
+    </div>
+</article>
+
+<!-- Configuration -->
+<article>
+    <header>
+        <h2>Configuration</h2>
+    </header>
+    <div id="sync-config" hx-get="/api/sync/config" hx-trigger="load" hx-swap="innerHTML">
+        <p aria-busy="true">Loading configuration...</p>
+    </div>
+</article>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function triggerSync() {
+        const btn = document.getElementById('sync-btn');
+
+        btn.querySelector('.btn-text').style.display = 'none';
+        btn.querySelector('.btn-loading').style.display = 'inline-block';
+        btn.disabled = true;
+
+        try {
+            const response = await fetch('/api/sync/run', {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Sync failed to start');
+            }
+
+            const result = await response.json();
+            showToast('Sync started in background', 'success');
+
+            // Refresh status
+            htmx.trigger('#sync-status', 'load');
+        } catch (error) {
+            showToast(error.message, 'error');
+        } finally {
+            btn.querySelector('.btn-text').style.display = 'inline';
+            btn.querySelector('.btn-loading').style.display = 'none';
+            btn.disabled = false;
+        }
+    }
+
+    function refreshLogs() {
+        htmx.trigger('#sync-logs', 'load');
+    }
+
+    // Format HTMX responses
+    document.body.addEventListener('htmx:afterSwap', function(evt) {
+        if (evt.detail.target.id === 'sync-status') {
+            formatSyncStatus(evt.detail.target, evt.detail.xhr.response);
+        } else if (evt.detail.target.id === 'schedule-info') {
+            formatScheduleInfo(evt.detail.target, evt.detail.xhr.response);
+        } else if (evt.detail.target.id === 'sync-logs') {
+            formatSyncLogs(evt.detail.target, evt.detail.xhr.response);
+        } else if (evt.detail.target.id === 'sync-config') {
+            formatSyncConfig(evt.detail.target, evt.detail.xhr.response);
+        }
+    });
+
+    function formatSyncStatus(target, response) {
+        try {
+            const data = JSON.parse(response);
+
+            let statusClass = 'muted';
+            let statusText = 'Unknown';
+
+            if (data.is_syncing) {
+                statusClass = 'primary';
+                statusText = 'Syncing...';
+            } else if (data.last_sync) {
+                if (data.last_sync.success) {
+                    statusClass = 'success';
+                    statusText = 'Completed';
+                } else {
+                    statusClass = 'error';
+                    statusText = 'Failed';
+                }
+            } else {
+                statusText = 'Never synced';
+            }
+
+            let html = `
+                <div class="status-grid">
+                    <div class="status-card">
+                        <span class="status-label">Status</span>
+                        <span class="status-value badge badge-${statusClass}">${statusText}</span>
+                    </div>
+            `;
+
+            if (data.last_sync) {
+                html += `
+                    <div class="status-card">
+                        <span class="status-label">Last Sync</span>
+                        <span class="status-value">${formatDate(data.last_sync.started_at)}</span>
+                    </div>
+                    <div class="status-card">
+                        <span class="status-label">Duration</span>
+                        <span class="status-value">${data.last_sync.duration_seconds?.toFixed(1) || '-'}s</span>
+                    </div>
+                `;
+
+                if (data.last_sync.error) {
+                    html += `
+                        <div class="status-card error-card">
+                            <span class="status-label">Error</span>
+                            <span class="status-value error">${escapeHtml(data.last_sync.error)}</span>
+                        </div>
+                    `;
+                }
+            }
+
+            html += '</div>';
+
+            // Sync history
+            if (data.history && data.history.length > 0) {
+                html += `
+                    <h4>Recent History</h4>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Status</th>
+                                <th>Duration</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.history.map(h => `
+                                <tr>
+                                    <td>${formatDate(h.started_at)}</td>
+                                    <td><span class="badge badge-${h.success ? 'success' : 'error'}">${h.success ? 'Success' : 'Failed'}</span></td>
+                                    <td>${h.duration_seconds?.toFixed(1) || '-'}s</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            }
+
+            target.innerHTML = html;
+        } catch (e) {
+            target.innerHTML = '<p class="muted">Unable to load sync status</p>';
+        }
+    }
+
+    function formatScheduleInfo(target, response) {
+        try {
+            const data = JSON.parse(response);
+
+            let html = `
+                <div class="status-grid">
+                    <div class="status-card">
+                        <span class="status-label">Scheduler</span>
+                        <span class="status-value badge badge-${data.running ? 'success' : 'warning'}">${data.running ? 'Running' : 'Stopped'}</span>
+                    </div>
+                    <div class="status-card">
+                        <span class="status-label">Sync Enabled</span>
+                        <span class="status-value badge badge-${data.sync_enabled ? 'success' : 'warning'}">${data.sync_enabled ? 'Yes' : 'No'}</span>
+                    </div>
+                    <div class="status-card">
+                        <span class="status-label">Cron Schedule</span>
+                        <span class="status-value"><code>${escapeHtml(data.sync_cron || 'Not set')}</code></span>
+                    </div>
+                </div>
+            `;
+
+            if (data.jobs && data.jobs.length > 0) {
+                html += `
+                    <h4>Scheduled Jobs</h4>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Job</th>
+                                <th>Next Run</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.jobs.map(job => `
+                                <tr>
+                                    <td>${escapeHtml(job.name)}</td>
+                                    <td>${job.next_run ? formatDate(job.next_run) : 'Not scheduled'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            }
+
+            target.innerHTML = html;
+        } catch (e) {
+            target.innerHTML = '<p class="muted">Unable to load schedule info</p>';
+        }
+    }
+
+    function formatSyncLogs(target, response) {
+        try {
+            const data = JSON.parse(response);
+
+            if (!data.logs || data.logs.length === 0) {
+                target.innerHTML = '<p class="muted">No sync logs available</p>';
+                return;
+            }
+
+            target.innerHTML = `
+                <pre class="log-output">${escapeHtml(data.logs.join('\n'))}</pre>
+            `;
+        } catch (e) {
+            target.innerHTML = '<p class="muted">Unable to load sync logs</p>';
+        }
+    }
+
+    function formatSyncConfig(target, response) {
+        try {
+            const data = JSON.parse(response);
+
+            let html = `
+                <div class="status-grid">
+                    <div class="status-card">
+                        <span class="status-label">rclone Installed</span>
+                        <span class="status-value badge badge-${data.rclone_installed ? 'success' : 'error'}">${data.rclone_installed ? 'Yes' : 'No'}</span>
+                    </div>
+                    <div class="status-card">
+                        <span class="status-label">Remote</span>
+                        <span class="status-value"><code>${escapeHtml(data.remote || 'Not configured')}</code></span>
+                    </div>
+                    <div class="status-card">
+                        <span class="status-label">Bucket</span>
+                        <span class="status-value"><code>${escapeHtml(data.bucket || 'Not configured')}</code></span>
+                    </div>
+                    <div class="status-card">
+                        <span class="status-label">Media Path</span>
+                        <span class="status-value"><code>${escapeHtml(data.media_path || '/mnt/media')}</code></span>
+                    </div>
+                </div>
+            `;
+
+            if (!data.rclone_installed) {
+                html += `
+                    <p class="warning-text">
+                        rclone is not installed. Install it to enable cloud sync functionality.
+                    </p>
+                `;
+            } else if (!data.remote || !data.bucket) {
+                html += `
+                    <p class="warning-text">
+                        Configure RCLONE_REMOTE and RCLONE_BUCKET environment variables to enable sync.
+                    </p>
+                `;
+            }
+
+            target.innerHTML = html;
+        } catch (e) {
+            target.innerHTML = '<p class="muted">Unable to load configuration</p>';
+        }
+    }
+
+    function formatDate(isoString) {
+        if (!isoString) return '-';
+        const date = new Date(isoString);
+        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+</script>
+{% endblock %}
