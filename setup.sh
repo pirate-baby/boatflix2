@@ -13,7 +13,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 BOATFLIX_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MEDIA_MOUNT="/mnt/media"
+MEDIA_MOUNT="/media/boatflix/Expansion/media"
 WITTY_PI_DIR="/home/${USER}/wittypi"
 LOG_FILE="/var/log/boatflix2-setup.log"
 
@@ -280,8 +280,10 @@ setup_external_hdd() {
     # Create Jellyfin folder structure
     log INFO "Creating Jellyfin folder structure..."
     mkdir -p "$MEDIA_MOUNT/Movies"
-    mkdir -p "$MEDIA_MOUNT/TV Shows"
+    mkdir -p "$MEDIA_MOUNT/Shows"
     mkdir -p "$MEDIA_MOUNT/Music"
+    mkdir -p "$MEDIA_MOUNT/Commercials"
+    mkdir -p "$MEDIA_MOUNT/Books"
     mkdir -p "$MEDIA_MOUNT/Downloads"
     mkdir -p "$MEDIA_MOUNT/Downloads/complete"
     mkdir -p "$MEDIA_MOUNT/Downloads/incomplete"
@@ -442,7 +444,7 @@ setup_systemd_service() {
 [Unit]
 Description=Boatflix2 Media Server Stack
 Documentation=https://github.com/your-repo/boatflix2
-After=docker.service mnt-media.mount network-online.target
+After=docker.service media-boatflix-Expansion-media.mount network-online.target
 Wants=network-online.target
 Requires=docker.service
 
@@ -516,10 +518,10 @@ PGID=1000
 TZ=America/New_York
 
 # Media storage path on host
-MEDIA_PATH=/mnt/media
+MEDIA_PATH=/media/boatflix/Expansion/media
 
 # Downloads path (where torrents are downloaded)
-DOWNLOADS_PATH=/mnt/media/Downloads
+DOWNLOADS_PATH=/media/boatflix/Expansion/media/Downloads
 
 # TMDB API Key for metadata enrichment (optional, free tier available at themoviedb.org)
 TMDB_API_KEY=

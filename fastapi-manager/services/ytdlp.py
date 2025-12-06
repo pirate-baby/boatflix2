@@ -284,7 +284,7 @@ class YtdlpService:
             episode_name = f"{show} S{metadata.season:02d}E{metadata.episode:02d}"
             return str(
                 self.media_path
-                / "TV Shows"
+                / "Shows"
                 / f"{show}{year}"
                 / season
                 / f"{episode_name}.%(ext)s"

@@ -37,10 +37,10 @@ Boatflix2 transforms your Raspberry Pi 5 into a powerful media server with autom
                                     │        ▼           ▼           ▼             ▼          │
                                     │   ┌─────────────────────────────────────────────────┐   │
                                     │   │              External USB HDD                   │   │
-                                    │   │                 /mnt/media                       │   │
-                                    │   │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐│   │
-                                    │   │  │ Movies  │ │TV Shows │ │  Music  │ │Downloads││   │
-                                    │   │  └─────────┘ └─────────┘ └─────────┘ └─────────┘│   │
+                                    │   │        /media/boatflix/Expansion/media           │   │
+                                    │   │  ┌───────┐┌───────┐┌───────┐┌───────┐┌─────────┐│   │
+                                    │   │  │Movies ││ Shows ││ Music ││ Books ││Downloads││   │
+                                    │   │  └───────┘└───────┘└───────┘└───────┘└─────────┘│   │
                                     │   └─────────────────────────────────────────────────┘   │
                                     │                            │                             │
                                     │   ┌──────────────┐         │         ┌──────────────┐   │
@@ -152,17 +152,17 @@ lsblk
 sudo mkfs.ext4 /dev/sda1
 
 # Create mount point
-sudo mkdir -p /mnt/media
+sudo mkdir -p /media/boatflix/Expansion/media
 
 # Add to fstab for auto-mount
-echo "/dev/sda1 /mnt/media ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
+echo "/dev/sda1 /media/boatflix/Expansion/media ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
 
 # Mount now
 sudo mount -a
 
 # Create folder structure
-sudo mkdir -p /mnt/media/{Movies,"TV Shows",Music,Downloads/{complete,incomplete}}
-sudo chown -R 1000:1000 /mnt/media
+sudo mkdir -p /media/boatflix/Expansion/media/{Movies,Shows,Music,Commercials,Books,Downloads/{complete,incomplete}}
+sudo chown -R 1000:1000 /media/boatflix/Expansion/media
 ```
 
 ### 4. Configure Environment
@@ -215,8 +215,8 @@ cp .env.example .env
 | `PUID` | `1000` | User ID for file permissions |
 | `PGID` | `1000` | Group ID for file permissions |
 | `TZ` | `America/New_York` | Timezone for all services |
-| `MEDIA_PATH` | `/mnt/media` | Path to media storage on host |
-| `DOWNLOADS_PATH` | `/mnt/media/Downloads` | Torrent download directory |
+| `MEDIA_PATH` | `/media/boatflix/Expansion/media` | Path to media storage on host |
+| `DOWNLOADS_PATH` | `/media/boatflix/Expansion/media/Downloads` | Torrent download directory |
 | `TMDB_API_KEY` | (empty) | TheMovieDB API key for metadata (optional, free at themoviedb.org) |
 | `RCLONE_REMOTE` | (empty) | Remote name from rclone.conf |
 | `RCLONE_BUCKET` | (empty) | Bucket/path on remote storage |
@@ -267,8 +267,8 @@ rclone lsd s3:your-bucket-name
 2. Default credentials: `admin` / `adminadmin`
 3. **Change the password immediately** in Tools > Options > Web UI
 4. Configure download paths:
-   - Default Save Path: `/mnt/media/Downloads/complete`
-   - Keep incomplete torrents in: `/mnt/media/Downloads/incomplete`
+   - Default Save Path: `/media/boatflix/Expansion/media/Downloads/complete`
+   - Keep incomplete torrents in: `/media/boatflix/Expansion/media/Downloads/incomplete`
 
 ## Usage
 
@@ -277,9 +277,9 @@ rclone lsd s3:your-bucket-name
 1. Open http://jellyfin.localhost or http://your-pi-ip:8096
 2. Complete initial setup wizard on first access
 3. Add media libraries pointing to:
-   - Movies: `/mnt/media/Movies`
-   - TV Shows: `/mnt/media/TV Shows`
-   - Music: `/mnt/media/Music`
+   - Movies: `/media/boatflix/Expansion/media/Movies`
+   - Shows: `/media/boatflix/Expansion/media/Shows`
+   - Music: `/media/boatflix/Expansion/media/Music`
 
 ### Downloading with yt-dlp
 
@@ -287,7 +287,7 @@ rclone lsd s3:your-bucket-name
 2. Go to the Download page
 3. Paste a video URL (YouTube, Vimeo, etc.)
 4. Select format options and download
-5. Files are saved to `/mnt/media/Downloads`
+5. Files are saved to `/media/boatflix/Expansion/media/Downloads`
 
 ### Organizing Torrents
 
@@ -355,10 +355,10 @@ docker compose restart
 #### Permission issues with media files
 ```bash
 # Check ownership
-ls -la /mnt/media
+ls -la /media/boatflix/Expansion/media
 
 # Fix permissions (match PUID/PGID in .env)
-sudo chown -R 1000:1000 /mnt/media
+sudo chown -R 1000:1000 /media/boatflix/Expansion/media
 ```
 
 #### External HDD not mounting
@@ -370,7 +370,7 @@ lsblk
 cat /etc/fstab
 
 # Manual mount attempt
-sudo mount /dev/sda1 /mnt/media
+sudo mount /dev/sda1 /media/boatflix/Expansion/media
 
 # Check mount errors
 dmesg | tail -20
@@ -385,11 +385,11 @@ rclone lsd ${RCLONE_REMOTE}:${RCLONE_BUCKET}
 docker exec manager cat /app/data/sync.log
 
 # Manual sync test
-docker exec manager rclone sync /mnt/media ${RCLONE_REMOTE}:${RCLONE_BUCKET} --dry-run
+docker exec manager rclone sync /media/boatflix/Expansion/media ${RCLONE_REMOTE}:${RCLONE_BUCKET} --dry-run
 ```
 
 #### Jellyfin not finding media
-- Ensure media is in correct folders (`Movies`, `TV Shows`, `Music`)
+- Ensure media is in correct folders (`Movies`, `Shows`, `Music`)
 - Trigger library scan: Settings > Dashboard > Libraries > Scan All Libraries
 - Check file permissions inside container
 

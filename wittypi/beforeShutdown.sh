@@ -7,7 +7,7 @@
 
 # Configuration
 BOATFLIX_DIR="/home/boatflix/boatflix2"
-MEDIA_MOUNT="/mnt/media"
+MEDIA_MOUNT="/media/boatflix/Expansion/media"
 LOG_FILE="/var/log/boatflix2-wittypi.log"
 DOCKER_COMPOSE_FILE="$BOATFLIX_DIR/docker-compose.yml"
 RCLONE_CONFIG="$BOATFLIX_DIR/rclone.conf"

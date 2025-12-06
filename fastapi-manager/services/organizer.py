@@ -14,7 +14,7 @@ def get_jellyfin_library_paths() -> dict[str, Path]:
     media_path = Path(settings.MEDIA_PATH)
     return {
         'movie': media_path / 'Movies',
-        'tv': media_path / 'TV Shows',
+        'tv': media_path / 'Shows',
         'music': media_path / 'Music'
     }
 
