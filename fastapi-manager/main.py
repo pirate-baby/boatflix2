@@ -3,12 +3,16 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from config import settings
 from routers import download, sync, organize
+from services import rclone
 from services.download_queue import download_queue
 
 # Configure logging
@@ -20,6 +24,44 @@ logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 
+# Scheduler instance
+scheduler = AsyncIOScheduler()
+
+
+def parse_cron_expression(cron_expr: str) -> dict:
+    """Parse a standard cron expression into APScheduler CronTrigger kwargs.
+
+    Args:
+        cron_expr: Standard cron expression (minute hour day month day_of_week)
+
+    Returns:
+        Dict with minute, hour, day, month, day_of_week keys
+    """
+    parts = cron_expr.split()
+    if len(parts) != 5:
+        raise ValueError(f"Invalid cron expression: {cron_expr}")
+
+    return {
+        "minute": parts[0],
+        "hour": parts[1],
+        "day": parts[2],
+        "month": parts[3],
+        "day_of_week": parts[4],
+    }
+
+
+async def scheduled_sync():
+    """Run scheduled sync job."""
+    logger.info("Starting scheduled sync job")
+    try:
+        result = await rclone.run_bisync()
+        if result["success"]:
+            logger.info(f"Scheduled sync completed successfully in {result['duration_seconds']:.1f}s")
+        else:
+            logger.error(f"Scheduled sync failed: {result.get('error', 'Unknown error')}")
+    except Exception as e:
+        logger.exception(f"Scheduled sync error: {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -28,7 +70,33 @@ async def lifespan(app: FastAPI):
     logger.info("Starting download worker...")
     worker_task = asyncio.create_task(download_queue.start_worker())
 
+    # Start sync scheduler if configured
+    if settings.SYNC_ENABLED and settings.RCLONE_REMOTE and settings.RCLONE_BUCKET:
+        try:
+            cron_kwargs = parse_cron_expression(settings.SYNC_CRON)
+            scheduler.add_job(
+                scheduled_sync,
+                CronTrigger(**cron_kwargs),
+                id="rclone_bisync",
+                name="rclone bidirectional sync",
+                replace_existing=True,
+            )
+            scheduler.start()
+            logger.info(f"Sync scheduler started with cron: {settings.SYNC_CRON}")
+        except Exception as e:
+            logger.error(f"Failed to start sync scheduler: {e}")
+    else:
+        if not settings.SYNC_ENABLED:
+            logger.info("Sync scheduler disabled (SYNC_ENABLED=false)")
+        else:
+            logger.warning("Sync scheduler not started: RCLONE_REMOTE and RCLONE_BUCKET must be configured")
+
     yield
+
+    # Shutdown sync scheduler
+    if scheduler.running:
+        scheduler.shutdown()
+        logger.info("Sync scheduler stopped")
 
     # Stop the download worker
     logger.info("Stopping download worker...")
@@ -66,3 +134,23 @@ app.include_router(organize.router, prefix="/api/organize", tags=["organize"])
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
+
+
+@app.get("/scheduler/status")
+def scheduler_status():
+    """Get the status of the scheduler and its jobs."""
+    jobs = []
+    if scheduler.running:
+        for job in scheduler.get_jobs():
+            jobs.append({
+                "id": job.id,
+                "name": job.name,
+                "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
+            })
+
+    return {
+        "running": scheduler.running,
+        "sync_enabled": settings.SYNC_ENABLED,
+        "sync_cron": settings.SYNC_CRON,
+        "jobs": jobs,
+    }

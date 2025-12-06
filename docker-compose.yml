@@ -65,9 +65,14 @@ services:
       - MEDIA_PATH=/mnt/media
       - DOWNLOADS_PATH=/mnt/media/Downloads
       - TMDB_API_KEY=${TMDB_API_KEY:-}
+      - RCLONE_REMOTE=${RCLONE_REMOTE:-}
+      - RCLONE_BUCKET=${RCLONE_BUCKET:-}
+      - SYNC_CRON=${SYNC_CRON:-0 2 * * *}
+      - SYNC_ENABLED=${SYNC_ENABLED:-true}
     volumes:
       - manager_data:/app/data
       - ${MEDIA_PATH}:/mnt/media
+      - ${RCLONE_CONFIG:-./rclone.conf}:/root/.config/rclone/rclone.conf:ro
     networks:
       - media_network
     restart: unless-stopped
