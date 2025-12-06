@@ -16,7 +16,7 @@ services:
     restart: unless-stopped
 
   ersatztv:
-    image: jasongdove/ersatztv:latest-vaapi
+    image: jasongdove/ersatztv:latest-arm64
     container_name: ersatztv
     environment:
       - TZ=${TZ}
