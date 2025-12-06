@@ -226,8 +226,22 @@ setup_external_hdd() {
     fi
 
     # Check if already in fstab
+    local fstab_updated=false
     if grep -q "$uuid" /etc/fstab; then
-        log INFO "Drive already configured in /etc/fstab"
+        # Check if fstab entry needs updating for vfat/exfat (missing uid/gid options)
+        if [[ "$fstype" == "vfat" || "$fstype" == "exfat" ]]; then
+            if ! grep "$uuid" /etc/fstab | grep -q "uid="; then
+                log INFO "Updating fstab entry with uid/gid options for $fstype..."
+                sudo cp /etc/fstab /etc/fstab.backup.$(date +%Y%m%d%H%M%S)
+                sudo sed -i "\|$uuid|d" /etc/fstab
+                echo "UUID=$uuid  $MEDIA_MOUNT  $fstype  $mount_opts  0  2" | sudo tee -a /etc/fstab
+                fstab_updated=true
+            else
+                log INFO "Drive already configured in /etc/fstab with correct options"
+            fi
+        else
+            log INFO "Drive already configured in /etc/fstab"
+        fi
     else
         log INFO "Adding fstab entry..."
         # Backup fstab
@@ -236,14 +250,25 @@ setup_external_hdd() {
         # Add fstab entry
         echo "UUID=$uuid  $MEDIA_MOUNT  $fstype  $mount_opts  0  2" | sudo tee -a /etc/fstab
         log INFO "Added fstab entry for auto-mount"
+        fstab_updated=true
     fi
 
-    # Mount the drive
+    # Reload systemd if fstab was updated
+    if [[ "$fstab_updated" == true ]]; then
+        sudo systemctl daemon-reload
+    fi
+
+    # Mount the drive (remount if already mounted and fstab was updated)
     if mountpoint -q "$MEDIA_MOUNT"; then
-        log INFO "$MEDIA_MOUNT is already mounted"
+        if [[ "$fstab_updated" == true ]]; then
+            log INFO "Remounting drive with updated options..."
+            sudo umount "$MEDIA_MOUNT"
+            sudo mount "$MEDIA_MOUNT"
+        else
+            log INFO "$MEDIA_MOUNT is already mounted"
+        fi
     else
         log INFO "Mounting drive..."
-        sudo systemctl daemon-reload
         sudo mount "$MEDIA_MOUNT"
     fi
 
