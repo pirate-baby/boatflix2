@@ -4,7 +4,9 @@
 # Copies files one-by-one from source to destination, deleting source after successful copy
 # Designed to handle drives that may disconnect unexpectedly
 
-set -euo pipefail
+set -uo pipefail
+# Note: Not using -e (errexit) because arithmetic operations like ((var++))
+# return 1 when the result is 0, which would cause premature exit
 
 # Configuration
 SOURCE_DIR="${1:-}"
@@ -93,18 +95,52 @@ failed_files=0
 # Find all files and process them one by one
 log "Scanning source directory for files..."
 
-while IFS= read -r -d '' source_file; do
+# First, test if we can read the source directory at all
+if ! ls "$SOURCE_DIR" &>/dev/null; then
+    log "ERROR: Cannot read source directory. Drive may be disconnected."
+    exit 2
+fi
+
+# Build file list incrementally instead of all at once
+# This way if the drive fails mid-scan, we still process what we found
+process_directory() {
+    local dir="$1"
+
+    # Try to list directory contents
+    local entries
+    if ! entries=$(ls -A "$dir" 2>&1); then
+        log "WARNING: Cannot read directory: $dir (I/O error?)"
+        return 1
+    fi
+
+    # Process each entry
+    while IFS= read -r entry; do
+        [[ -z "$entry" ]] && continue
+        local full_path="$dir/$entry"
+
+        if [[ -d "$full_path" ]]; then
+            # Recurse into subdirectory
+            process_directory "$full_path"
+        elif [[ -f "$full_path" ]]; then
+            # Process file
+            process_file "$full_path"
+        fi
+    done <<< "$entries"
+}
+
+process_file() {
+    local source_file="$1"
     ((total_files++))
 
     # Get relative path
-    relative_path="${source_file#$SOURCE_DIR/}"
-    dest_file="$DEST_DIR/$relative_path"
+    local relative_path="${source_file#$SOURCE_DIR/}"
+    local dest_file="$DEST_DIR/$relative_path"
 
     # Skip if already copied
     if [[ -v "COPIED_FILES[$relative_path]" ]]; then
         echo -e "${YELLOW}[SKIP]${NC} Already copied: $relative_path"
         ((skipped_files++))
-        continue
+        return 0
     fi
 
     # Check if source is still accessible
@@ -118,25 +154,25 @@ while IFS= read -r -d '' source_file; do
     echo -e "${YELLOW}[COPY]${NC} $relative_path"
 
     # Create destination directory structure
-    dest_dir=$(dirname "$dest_file")
+    local dest_dir=$(dirname "$dest_file")
     if [[ ! -d "$dest_dir" ]]; then
         if ! mkdir -p "$dest_dir" 2>/dev/null; then
             log "ERROR: Failed to create directory: $dest_dir"
             ((failed_files++))
-            continue
+            return 1
         fi
     fi
 
     # Get source file size for progress
-    source_size=$(stat -c%s "$source_file" 2>/dev/null || stat -f%z "$source_file" 2>/dev/null || echo "unknown")
+    local source_size=$(stat -c%s "$source_file" 2>/dev/null || stat -f%z "$source_file" 2>/dev/null || echo "unknown")
 
     # Copy the file with rsync for better handling
     if rsync -a --progress --inplace "$source_file" "$dest_file" 2>&1; then
         # Verify with checksum
         echo -n "  Verifying checksum... "
 
-        source_md5=$(md5sum "$source_file" 2>/dev/null | cut -d' ' -f1 || md5 -q "$source_file" 2>/dev/null)
-        dest_md5=$(md5sum "$dest_file" 2>/dev/null | cut -d' ' -f1 || md5 -q "$dest_file" 2>/dev/null)
+        local source_md5=$(md5sum "$source_file" 2>/dev/null | cut -d' ' -f1 || md5 -q "$source_file" 2>/dev/null)
+        local dest_md5=$(md5sum "$dest_file" 2>/dev/null | cut -d' ' -f1 || md5 -q "$dest_file" 2>/dev/null)
 
         if [[ "$source_md5" == "$dest_md5" ]] && [[ -n "$source_md5" ]]; then
             echo -e "${GREEN}OK${NC}"
@@ -180,8 +216,10 @@ while IFS= read -r -d '' source_file; do
 
         ((failed_files++))
     fi
+}
 
-done < <(find "$SOURCE_DIR" -type f -print0 2>/dev/null)
+# Start processing from root
+process_directory "$SOURCE_DIR"
 
 # Summary
 log "=========================================="
