@@ -1,0 +1,62 @@
+# Boatflix2 Systemd Service
+# Install to: /etc/systemd/system/boatflix2.service
+#
+# Usage:
+#   sudo cp boatflix2.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable boatflix2
+#   sudo systemctl start boatflix2
+#
+# Note: This service works alongside Witty Pi 4 scripts.
+# Witty Pi handles scheduled power events (shutdown/startup)
+# while systemd handles normal boot and service management.
+
+[Unit]
+Description=Boatflix2 Media Server Stack
+Documentation=https://github.com/your-repo/boatflix2
+
+# Service dependencies
+After=docker.service mnt-media.mount network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+# Ordering hints
+Before=shutdown.target reboot.target halt.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Run as the boatflix user
+User=boatflix
+Group=docker
+
+# Working directory
+WorkingDirectory=/home/boatflix/boatflix2
+
+# Start containers
+ExecStart=/usr/bin/docker compose -f /home/boatflix/boatflix2/docker-compose.yml up -d
+
+# Stop containers gracefully on service stop
+ExecStop=/usr/bin/docker compose -f /home/boatflix/boatflix2/docker-compose.yml down
+
+# Reload configuration (docker compose restart)
+ExecReload=/usr/bin/docker compose -f /home/boatflix/boatflix2/docker-compose.yml restart
+
+# Restart configuration
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=120
+TimeoutStopSec=120
+
+# Environment
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="HOME=/home/boatflix"
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=boatflix2
+
+[Install]
+WantedBy=multi-user.target
