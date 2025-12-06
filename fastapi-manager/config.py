@@ -7,6 +7,7 @@ load_dotenv()
 class Settings:
     MEDIA_PATH: str = os.getenv("MEDIA_PATH", "/mnt/media")
     DOWNLOADS_PATH: str = os.getenv("DOWNLOADS_PATH", "/mnt/media/Downloads")
+    DATABASE_PATH: str = os.getenv("DATABASE_PATH", "/app/data/media_manager.db")
     TMDB_API_KEY: str | None = os.getenv("TMDB_API_KEY")
     SYNC_CRON: str = os.getenv("SYNC_CRON", "0 2 * * *")
     SYNC_ENABLED: bool = os.getenv("SYNC_ENABLED", "true").lower() == "true"
