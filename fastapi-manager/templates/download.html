@@ -146,6 +146,7 @@
                             <option value="movie" ${data.media_type === 'movie' ? 'selected' : ''}>Movie</option>
                             <option value="tv" ${data.media_type === 'tv' ? 'selected' : ''}>TV Show</option>
                             <option value="music" ${data.media_type === 'music' ? 'selected' : ''}>Music</option>
+                            <option value="commercial" ${data.media_type === 'commercial' ? 'selected' : ''}>Commercial</option>
                         </select>
                     </label>
                 </div>
@@ -240,6 +241,23 @@
                     </label>
                 </div>
             `;
+        } else if (type === 'commercial') {
+            html = `
+                <div class="grid">
+                    <label>
+                        Title
+                        <input type="text" id="meta-title" name="title" value="${escapeHtml(meta.title || data.raw_title || '')}" required>
+                    </label>
+                    <label>
+                        Year
+                        <input type="number" id="meta-year" name="year" value="${meta.year || ''}" min="1900" max="2100">
+                    </label>
+                </div>
+                <label>
+                    Description
+                    <textarea id="meta-description" name="description" rows="2">${escapeHtml(meta.description || '')}</textarea>
+                </label>
+            `;
         }
 
         fieldsDiv.innerHTML = html;
@@ -274,6 +292,12 @@
                 track: form.track.value,
                 track_number: parseInt(form.track_number.value) || null,
                 release_year: parseInt(form.release_year.value) || null
+            };
+        } else if (type === 'commercial') {
+            metadata = {
+                title: form.title.value,
+                year: parseInt(form.year.value) || null,
+                description: form.description.value || null
             };
         }
 

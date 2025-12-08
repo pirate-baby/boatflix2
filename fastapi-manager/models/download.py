@@ -11,6 +11,7 @@ class MediaType(str, Enum):
     MOVIE = "movie"
     TV = "tv"
     MUSIC = "music"
+    COMMERCIAL = "commercial"
 
 
 class DownloadStatus(str, Enum):
@@ -48,6 +49,13 @@ class MusicMetadata(BaseModel):
     release_year: Optional[int] = None
 
 
+class CommercialMetadata(BaseModel):
+    """Metadata for a commercial download."""
+    title: str
+    year: Optional[int] = None
+    description: Optional[str] = None
+
+
 class AnalyzeRequest(BaseModel):
     """Request to analyze a URL for metadata."""
     url: str
@@ -57,7 +65,7 @@ class AnalyzeResponse(BaseModel):
     """Response from URL analysis with detected metadata."""
     url: str
     media_type: MediaType
-    metadata: Union[MovieMetadata, TVMetadata, MusicMetadata]
+    metadata: Union[MovieMetadata, TVMetadata, MusicMetadata, CommercialMetadata]
     confidence: float = Field(ge=0.0, le=1.0, description="Confidence score 0-1")
     raw_title: Optional[str] = None
     thumbnail: Optional[str] = None
@@ -68,7 +76,7 @@ class DownloadRequest(BaseModel):
     """Request to start a download with confirmed metadata."""
     url: str
     media_type: MediaType
-    metadata: Union[MovieMetadata, TVMetadata, MusicMetadata]
+    metadata: Union[MovieMetadata, TVMetadata, MusicMetadata, CommercialMetadata]
 
 
 class DownloadJob(BaseModel):
@@ -76,7 +84,7 @@ class DownloadJob(BaseModel):
     id: str
     url: str
     media_type: MediaType
-    metadata: Union[MovieMetadata, TVMetadata, MusicMetadata]
+    metadata: Union[MovieMetadata, TVMetadata, MusicMetadata, CommercialMetadata]
     status: DownloadStatus
     progress: float = Field(default=0.0, ge=0.0, le=100.0)
     error: Optional[str] = None

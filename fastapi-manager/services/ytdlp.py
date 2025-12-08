@@ -14,6 +14,7 @@ from models.download import (
     MovieMetadata,
     TVMetadata,
     MusicMetadata,
+    CommercialMetadata,
     AnalyzeResponse,
 )
 
@@ -256,7 +257,7 @@ class YtdlpService:
     def get_output_template(
         self,
         media_type: MediaType,
-        metadata: MovieMetadata | TVMetadata | MusicMetadata,
+        metadata: MovieMetadata | TVMetadata | MusicMetadata | CommercialMetadata,
     ) -> str:
         """Generate yt-dlp output template for Jellyfin folder structure.
 
@@ -290,7 +291,7 @@ class YtdlpService:
                 / f"{episode_name}.%(ext)s"
             )
 
-        else:  # MUSIC
+        elif media_type == MediaType.MUSIC:
             assert isinstance(metadata, MusicMetadata)
             artist = self._sanitize_filename(metadata.artist)
             album = self._sanitize_filename(metadata.album or "Singles")
@@ -303,6 +304,15 @@ class YtdlpService:
                 / artist
                 / f"{album}{year}"
                 / f"{track_num}{track}.%(ext)s"
+            )
+
+        else:  # COMMERCIAL
+            assert isinstance(metadata, CommercialMetadata)
+            title = self._sanitize_filename(metadata.title)
+            year = metadata.year or datetime.now().year
+            filename = f"{title} ({year})"
+            return str(
+                Path("/mnt/media/Commercials") / f"{filename}.%(ext)s"
             )
 
     def _sanitize_filename(self, name: str) -> str:
@@ -320,7 +330,7 @@ class YtdlpService:
         self,
         url: str,
         media_type: MediaType,
-        metadata: MovieMetadata | TVMetadata | MusicMetadata,
+        metadata: MovieMetadata | TVMetadata | MusicMetadata | CommercialMetadata,
         progress_callback: Optional[Callable[[float, str], None]] = None,
     ) -> str:
         """Download media using yt-dlp to the correct Jellyfin folder.
