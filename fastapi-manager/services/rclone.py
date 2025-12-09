@@ -76,7 +76,7 @@ async def run_bisync(force_resync: bool = False) -> dict:
             "duration_seconds": 0,
         }
 
-    local_path = settings.MEDIA_PATH
+    local_path = settings.MEDIA_BASE
     remote_path = f"{settings.RCLONE_REMOTE}:{settings.RCLONE_BUCKET}"
 
     # Build command
@@ -231,7 +231,7 @@ def check_rclone_config() -> dict:
         "bucket_configured": bool(settings.RCLONE_BUCKET),
         "sync_enabled": settings.SYNC_ENABLED,
         "sync_cron": settings.SYNC_CRON,
-        "media_path": settings.MEDIA_PATH,
+        "media_path": settings.MEDIA_BASE,
     }
 
     # Check rclone version

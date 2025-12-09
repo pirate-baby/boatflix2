@@ -11,11 +11,11 @@ from services.metadata import is_video_file, is_audio_file, VIDEO_EXTENSIONS, AU
 
 def get_jellyfin_library_paths() -> dict[str, Path]:
     """Get Jellyfin library paths for different media types."""
-    media_path = Path(settings.MEDIA_PATH)
+    media_base = Path(settings.MEDIA_BASE)
     return {
-        'movie': media_path / 'Movies',
-        'tv': media_path / 'Shows',
-        'music': media_path / 'Music'
+        'movie': media_base / 'Movies',
+        'tv': media_base / 'Shows',
+        'music': media_base / 'Music'
     }
 
 
@@ -151,7 +151,7 @@ async def scan_downloads(downloads_path: str | None = None) -> list[dict]:
     Returns:
         List of items with basic info (not analyzed yet)
     """
-    path = Path(downloads_path or settings.DOWNLOADS_PATH)
+    path = Path(downloads_path or f"{settings.MEDIA_BASE}/Downloads")
 
     if not path.exists():
         return []

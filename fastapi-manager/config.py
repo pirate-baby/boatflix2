@@ -5,8 +5,8 @@ load_dotenv()
 
 
 class Settings:
-    MEDIA_PATH: str = os.getenv("MEDIA_PATH", "/media/boatflix/Expansion/media")
-    DOWNLOADS_PATH: str = os.getenv("DOWNLOADS_PATH", "/media/boatflix/Expansion/media/Downloads")
+    # Container mount path - fixed to match docker-compose volume mount
+    MEDIA_BASE: str = "/mnt/media"
     DATABASE_PATH: str = os.getenv("DATABASE_PATH", "/app/data/media_manager.db")
     TMDB_API_KEY: str | None = os.getenv("TMDB_API_KEY")
     SYNC_CRON: str = os.getenv("SYNC_CRON", "0 2 * * *")

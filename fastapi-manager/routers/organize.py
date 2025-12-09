@@ -45,7 +45,7 @@ async def organize_page(request: Request):
         "organize.html",
         {
             "request": request,
-            "downloads_path": settings.DOWNLOADS_PATH,
+            "downloads_path": f"{settings.MEDIA_BASE}/Downloads",
             "tmdb_enabled": bool(settings.TMDB_API_KEY)
         }
     )
@@ -60,7 +60,7 @@ async def list_downloads():
     """
     items = await scan_downloads()
     return {
-        "downloads_path": settings.DOWNLOADS_PATH,
+        "downloads_path": f"{settings.MEDIA_BASE}/Downloads",
         "items": items,
         "count": len(items)
     }
@@ -79,7 +79,7 @@ async def analyze_file(request: AnalyzeRequest):
     try:
         # Validate path is within downloads directory
         item_path = Path(request.path).resolve()
-        downloads_path = Path(settings.DOWNLOADS_PATH).resolve()
+        downloads_path = Path(f"{settings.MEDIA_BASE}/Downloads").resolve()
 
         if not str(item_path).startswith(str(downloads_path)):
             raise HTTPException(
@@ -134,7 +134,7 @@ async def move_file(request: MoveRequest):
     try:
         # Validate path is within downloads directory
         item_path = Path(request.source_path).resolve()
-        downloads_path = Path(settings.DOWNLOADS_PATH).resolve()
+        downloads_path = Path(f"{settings.MEDIA_BASE}/Downloads").resolve()
 
         if not str(item_path).startswith(str(downloads_path)):
             raise HTTPException(

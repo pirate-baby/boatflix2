@@ -43,7 +43,7 @@ async def organize_page(request: Request):
         "organize.html",
         {
             "request": request,
-            "downloads_path": settings.DOWNLOADS_PATH,
+            "downloads_path": f"{settings.MEDIA_BASE}/Downloads",
             "tmdb_enabled": bool(settings.TMDB_API_KEY),
         },
     )
@@ -63,7 +63,7 @@ async def sync_page(request: Request):
 @router.get("/api/pending-count")
 async def get_pending_count():
     """Get count of items pending organization in Downloads folder."""
-    downloads_path = Path(settings.DOWNLOADS_PATH)
+    downloads_path = Path(f"{settings.MEDIA_BASE}/Downloads")
 
     if not downloads_path.exists():
         return JSONResponse({"count": 0, "html": "<p class='muted'>Downloads folder not found</p>"})
@@ -106,7 +106,7 @@ async def get_sync_summary():
 @router.get("/api/files")
 async def list_files():
     """List files in the Downloads folder for the file browser."""
-    downloads_path = Path(settings.DOWNLOADS_PATH)
+    downloads_path = Path(f"{settings.MEDIA_BASE}/Downloads")
 
     if not downloads_path.exists():
         return JSONResponse({"items": [], "error": "Downloads folder not found"})

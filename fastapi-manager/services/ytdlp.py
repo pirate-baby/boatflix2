@@ -26,7 +26,7 @@ class YtdlpService:
     """Service for yt-dlp operations with Jellyfin folder structure support."""
 
     def __init__(self, media_path: Optional[str] = None):
-        self.media_path = Path(media_path or settings.MEDIA_PATH)
+        self.media_path = Path(media_path or settings.MEDIA_BASE)
 
     async def analyze_url(self, url: str) -> AnalyzeResponse:
         """Analyze a URL and extract metadata for auto-detection.
@@ -411,7 +411,7 @@ class YtdlpService:
             year = metadata.year or datetime.now().year
             filename = f"{title} ({year})"
             return str(
-                Path("/mnt/media/Commercials") / f"{filename}.%(ext)s"
+                self.media_path / "Commercials" / f"{filename}.%(ext)s"
             )
 
     def _sanitize_filename(self, name: str) -> str:
