@@ -70,6 +70,10 @@ class AnalyzeResponse(BaseModel):
     raw_title: Optional[str] = None
     thumbnail: Optional[str] = None
     duration: Optional[int] = None
+    # Graceful degradation fields
+    metadata_available: bool = Field(default=True, description="Whether yt-dlp could extract metadata")
+    extractor: Optional[str] = Field(default=None, description="yt-dlp extractor used (e.g., 'youtube', 'pluto')")
+    extractor_error: Optional[str] = Field(default=None, description="Error message if metadata extraction failed")
 
 
 class DownloadRequest(BaseModel):

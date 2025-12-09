@@ -122,7 +122,24 @@
         const resultDiv = document.getElementById('analysis-result');
         const data = currentAnalysis;
 
-        const confidenceClass = data.confidence >= 0.8 ? 'success' : data.confidence >= 0.5 ? 'warning' : 'error';
+        // Handle metadata unavailable case
+        const metadataAvailable = data.metadata_available !== false;
+        const confidenceClass = !metadataAvailable ? 'warning' :
+            (data.confidence >= 0.8 ? 'success' : data.confidence >= 0.5 ? 'warning' : 'error');
+
+        // Build status message
+        let statusHtml = '';
+        if (!metadataAvailable) {
+            statusHtml = `
+                <div class="alert alert-warning" style="margin-bottom: 1rem; padding: 1rem; background: var(--pico-mark-background-color); border-radius: var(--pico-border-radius);">
+                    <strong>Metadata not available</strong>
+                    <p style="margin: 0.5rem 0 0 0; font-size: 0.9em;">
+                        Could not extract metadata from this source${data.extractor ? ` (${data.extractor})` : ''}.
+                        Please fill in the details below to continue with the download.
+                    </p>
+                </div>
+            `;
+        }
 
         let html = `
             <div class="analysis-header grid">
@@ -132,11 +149,17 @@
                 <div class="analysis-info">
                     <h3>${escapeHtml(data.raw_title || 'Unknown Title')}</h3>
                     <p>
-                        <span class="badge badge-${confidenceClass}">${Math.round(data.confidence * 100)}% confidence</span>
+                        ${metadataAvailable
+                            ? `<span class="badge badge-${confidenceClass}">${Math.round(data.confidence * 100)}% confidence</span>`
+                            : `<span class="badge badge-warning">Manual entry required</span>`
+                        }
                         ${data.duration ? `<span class="badge">Duration: ${formatDuration(data.duration)}</span>` : ''}
+                        ${data.extractor ? `<span class="badge">${data.extractor}</span>` : ''}
                     </p>
                 </div>
             </div>
+
+            ${statusHtml}
 
             <form id="download-form" onsubmit="submitDownload(event)">
                 <div class="grid">

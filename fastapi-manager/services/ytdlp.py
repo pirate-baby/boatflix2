@@ -7,6 +7,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
+from urllib.parse import urlparse, unquote
 
 from config import settings
 from models.download import (
@@ -37,17 +38,41 @@ class YtdlpService:
             AnalyzeResponse with detected media type and metadata
         """
         info = await self._extract_info(url)
-        media_type, metadata, confidence = self._detect_media_type(info)
+        extraction_failed = info.get("_extraction_failed", False)
 
-        return AnalyzeResponse(
-            url=url,
-            media_type=media_type,
-            metadata=metadata,
-            confidence=confidence,
-            raw_title=info.get("title"),
-            thumbnail=info.get("thumbnail"),
-            duration=info.get("duration"),
-        )
+        # Build default response kwargs
+        response_kwargs = {
+            "url": url,
+            "media_type": MediaType.MOVIE,
+            "metadata": MovieMetadata(
+                title=info.get("title", "Unknown Title"),
+                year=None,
+                description=None,
+            ),
+            "confidence": 0.0,
+            "raw_title": info.get("title"),
+            "thumbnail": None,
+            "duration": None,
+            "metadata_available": False,
+            "extractor": info.get("extractor"),
+            "extractor_error": info.get("_extraction_error"),
+        }
+
+        # Override with extracted data if available
+        if not extraction_failed:
+            media_type, metadata, confidence = self._detect_media_type(info)
+            response_kwargs.update({
+                "media_type": media_type,
+                "metadata": metadata,
+                "confidence": confidence,
+                "thumbnail": info.get("thumbnail"),
+                "duration": info.get("duration"),
+                "metadata_available": True,
+                "extractor": info.get("extractor") or info.get("extractor_key"),
+                "extractor_error": None,
+            })
+
+        return AnalyzeResponse(**response_kwargs)
 
     def _detect_media_type(
         self, info: dict
@@ -245,14 +270,88 @@ class YtdlpService:
 
         if process.returncode != 0:
             error_msg = stderr.decode() if stderr else "Unknown error"
-            logger.error(f"yt-dlp info extraction failed: {error_msg}")
-            raise RuntimeError(f"Failed to extract info from URL: {error_msg}")
+            logger.warning(f"yt-dlp info extraction failed, attempting fallback: {error_msg}")
+            # Return fallback info instead of raising - graceful degradation
+            return self._create_fallback_info(url, error_msg)
 
         try:
-            return json.loads(stdout.decode())
+            info = json.loads(stdout.decode())
+            info["_extraction_failed"] = False
+            return info
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse yt-dlp JSON output: {e}")
-            raise RuntimeError(f"Failed to parse metadata: {e}")
+            logger.warning(f"Failed to parse yt-dlp JSON output, using fallback: {e}")
+            return self._create_fallback_info(url, f"JSON parse error: {e}")
+
+    def _create_fallback_info(self, url: str, error_msg: str) -> dict:
+        """Create minimal fallback metadata when yt-dlp extraction fails.
+
+        This allows downloads to proceed with user-supplied metadata.
+        """
+        # Try to extract a reasonable title from the URL
+        title = self._extract_title_from_url(url)
+
+        return {
+            "_extraction_failed": True,
+            "_extraction_error": error_msg,
+            "title": title,
+            "webpage_url": url,
+            "extractor": self._guess_extractor_from_url(url),
+        }
+
+    def _extract_title_from_url(self, url: str) -> str:
+        """Try to extract a meaningful title from a URL."""
+        parsed = urlparse(url)
+
+        # Try path components
+        path_parts = [p for p in parsed.path.split("/") if p]
+        if path_parts:
+            # Use the last meaningful path component
+            last_part = unquote(path_parts[-1])
+            # Remove common extensions and clean up
+            for ext in [".html", ".htm", ".php", ".aspx"]:
+                if last_part.lower().endswith(ext):
+                    last_part = last_part[: -len(ext)]
+            # Replace dashes/underscores with spaces
+            title = last_part.replace("-", " ").replace("_", " ")
+            if title and len(title) > 2:
+                return title.title()
+
+        # Fallback to domain
+        return parsed.netloc or "Unknown Title"
+
+    def _guess_extractor_from_url(self, url: str) -> str:
+        """Guess the extractor name from URL domain."""
+        # Map keywords to extractor names - matches if keyword appears anywhere in host
+        keyword_map = {
+            "youtube": "youtube",
+            "youtu.be": "youtube",
+            "vimeo": "vimeo",
+            "dailymotion": "dailymotion",
+            "twitch": "twitch",
+            "pluto": "pluto",
+            "tubi": "tubi",
+            "peacock": "peacock",
+            "cbs": "cbs",
+            "nbc": "nbc",
+            "abc": "abc",
+            "hulu": "hulu",
+            "crunchyroll": "crunchyroll",
+            "twitter": "twitter",
+            "x.com": "twitter",
+            "instagram": "instagram",
+            "facebook": "facebook",
+            "tiktok": "tiktok",
+            "reddit": "reddit",
+        }
+
+        parsed = urlparse(url)
+        host = parsed.netloc.lower()
+
+        for keyword, extractor in keyword_map.items():
+            if keyword in host:
+                return extractor
+
+        return "generic"
 
     def get_output_template(
         self,
