@@ -103,5 +103,5 @@ networks:
 volumes:
   jellyfin_config:
   ersatztv_config:
-  qbittorrent_config:
+  qbittorrent_configs:
   manager_data:
