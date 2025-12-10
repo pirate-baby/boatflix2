@@ -41,6 +41,8 @@ services:
       - OPENVPN_USER=${VPN_USER}
       - OPENVPN_PASSWORD=${VPN_PASSWORD}
       - SERVER_REGIONS=${VPN_REGION:-Netherlands}
+      - VPN_PORT_FORWARDING=on
+      - VPN_PORT_FORWARDING_PROVIDER=private internet access
     ports:
       - "8080:8080"  # qbittorrent webui
       - "6881:6881"  # qbittorrent torrent port
