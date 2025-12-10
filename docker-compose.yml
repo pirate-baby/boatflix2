@@ -29,9 +29,30 @@ services:
       - media_network
     restart: unless-stopped
 
+  vpn:
+    image: qmcgaw/gluetun:latest
+    container_name: vpn
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - VPN_SERVICE_PROVIDER=private internet access
+      - OPENVPN_USER=${VPN_USER}
+      - OPENVPN_PASSWORD=${VPN_PASSWORD}
+      - SERVER_REGIONS=${VPN_REGION:-Netherlands}
+    ports:
+      - "8080:8080"  # qbittorrent webui
+      - "6881:6881"  # qbittorrent torrent port
+      - "6881:6881/udp"
+    networks:
+      - media_network
+    restart: unless-stopped
+
   qbittorrent:
     image: linuxserver/qbittorrent
     container_name: qbittorrent
+    network_mode: "service:vpn"
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -40,10 +61,8 @@ services:
     volumes:
       - qbittorrent_config:/config
       - ${MEDIA_PATH}:/mnt/media
-    ports:
-      - "8080:8080"
-    networks:
-      - media_network
+    depends_on:
+      - vpn
     restart: unless-stopped
 
   nginx:
