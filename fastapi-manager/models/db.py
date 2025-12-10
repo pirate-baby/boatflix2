@@ -15,6 +15,7 @@ from models.download import (
     MovieMetadata,
     TVMetadata,
     MusicMetadata,
+    CommercialMetadata,
 )
 
 
@@ -42,7 +43,7 @@ class Download(Base):
         Index("idx_completed_at", "completed_at"),
     )
 
-    def get_metadata(self) -> MovieMetadata | TVMetadata | MusicMetadata:
+    def get_metadata(self) -> MovieMetadata | TVMetadata | MusicMetadata | CommercialMetadata:
         """Deserialize metadata from JSON."""
         parsed = json.loads(self.metadata_json)
         media_type = MediaType(self.media_type)
@@ -50,10 +51,12 @@ class Download(Base):
             return MovieMetadata(**parsed)
         elif media_type == MediaType.TV:
             return TVMetadata(**parsed)
-        else:
+        elif media_type == MediaType.MUSIC:
             return MusicMetadata(**parsed)
+        else:
+            return CommercialMetadata(**parsed)
 
-    def set_metadata(self, metadata: MovieMetadata | TVMetadata | MusicMetadata):
+    def set_metadata(self, metadata: MovieMetadata | TVMetadata | MusicMetadata | CommercialMetadata):
         """Serialize metadata to JSON."""
         self.metadata_json = json.dumps(metadata.model_dump())
 
