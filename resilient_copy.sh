@@ -190,11 +190,15 @@ process_file() {
     fi
 
     if [[ $rsync_result -eq 0 ]]; then
-        # Verify with checksum (with timeout)
+        # Verify with checksum (with timeout scaled to file size)
         echo -n "  Verifying checksum... "
 
-        local source_md5=$(timeout "$IO_TIMEOUT" md5sum "$source_file" 2>/dev/null | cut -d' ' -f1)
-        local dest_md5=$(timeout "$IO_TIMEOUT" md5sum "$dest_file" 2>/dev/null | cut -d' ' -f1)
+        # Allow ~50 MB/s read speed minimum, plus 30s buffer
+        local checksum_timeout=$(( (source_size / 50000000) + 60 ))
+        [[ "$source_size" == "unknown" ]] && checksum_timeout=600  # 10 min fallback
+
+        local source_md5=$(timeout "$checksum_timeout" md5sum "$source_file" 2>/dev/null | cut -d' ' -f1)
+        local dest_md5=$(timeout "$checksum_timeout" md5sum "$dest_file" 2>/dev/null | cut -d' ' -f1)
 
         if [[ "$source_md5" == "$dest_md5" ]] && [[ -n "$source_md5" ]]; then
             echo -e "${GREEN}OK${NC}"
