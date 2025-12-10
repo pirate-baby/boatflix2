@@ -54,7 +54,7 @@ services:
     environment:
       - WEBUI_PORT=8080
     volumes:
-      - qbittorrent_config:/config
+      - qbittorrent_configs:.config/qBittorrent/
       - ${MEDIA_PATH}:/mnt/media
     depends_on:
       - vpn
