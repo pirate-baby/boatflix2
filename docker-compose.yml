@@ -7,7 +7,7 @@ services:
       - PGID=${PGID}
       - TZ=${TZ}
     volumes:
-      - jellyfin_config:/config
+      - ./configs/jellyfin:/config
       - ${MEDIA_PATH}:/mnt/media
     ports:
       - "8096:8096"
@@ -21,7 +21,7 @@ services:
     environment:
       - TZ=${TZ}
     volumes:
-      - ersatztv_config:/config
+      - ./configs/ersatztv:/config
       - ${MEDIA_PATH}:/mnt/media
     ports:
       - "8409:8409"
@@ -40,25 +40,40 @@ services:
       - OPENVPN_PASSWORD=${VPN_PASSWORD}
       - SERVER_REGIONS=${VPN_REGION}
     ports:
-      - "8080:8080"  # qbittorrent webui
+      - "8081:8081"  # qbittorrent webui
       - "6881:6881"  # qbittorrent torrent port
       - "6881:6881/udp"
     networks:
       - media_network
+    volumes:
+      - ./configs/gluetun:/gluetun
+    logging:
+      driver: json-file
+      options:
+        max-file: '2'
+        max-size: 200k
     restart: unless-stopped
 
   qbittorrent:
-    image: linuxserver/qbittorrent
+    image: linuxserver/qbittorrent:latest
     container_name: qbittorrent
     network_mode: "service:vpn"
     environment:
-      - WEBUI_PORT=8080
+      - WEBUI_PORT=8081
     volumes:
-      - ./qbittorrent_configs:/root/.config/qBittorrent
+      - ./configs/qbittorrent:/config
       - ${MEDIA_PATH}:/mnt/media
     depends_on:
-      - vpn
-    restart: unless-stopped
+      vpn:
+        condition: service_started
+    healthcheck:
+      test: [CMD, curl, -fsL, ipconfig.me]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+      start_interval: 5s
+    restart: always
 
   nginx:
     image: nginx:alpine
@@ -101,6 +116,4 @@ networks:
     driver: bridge
 
 volumes:
-  jellyfin_config:
-  ersatztv_config:
   manager_data:
