@@ -6,20 +6,16 @@ FROM debian:bookworm-slim
 
 WORKDIR /opt
 
-# Set architecture - will be overridden by buildx
-ARG TARGETARCH=arm64
-
 # Pin versions for reproducible builds
-ARG LIBTORRENT_VERSION=2.0.10
-ARG QBITTORRENT_VERSION=5.0.2
+ARG LIBTORRENT_VERSION=2.0.11
+ARG QBITTORRENT_VERSION=5.1.4
 
 RUN usermod -u 99 nobody
 
 # Make directories
 RUN mkdir -p /downloads /config/qBittorrent /etc/openvpn /etc/qbittorrent
 
-# Install ALL dependencies in one layer, build everything, then clean up
-# This avoids issues with apt cache being cleared between RUN commands
+# Install all dependencies
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
@@ -39,7 +35,7 @@ RUN apt-get update \
         qtbase5-dev \
         qttools5-dev \
         zlib1g-dev \
-        # Runtime dependencies (install now to avoid re-running apt later)
+        # Runtime dependencies
         dos2unix \
         inetutils-ping \
         ipcalc \
@@ -58,11 +54,10 @@ RUN apt-get update \
         wireguard-tools \
         p7zip-full \
         unzip \
-        zip \
-    #
-    # === Build libtorrent-rasterbar ===
-    #
-    && echo "Building libtorrent-rasterbar ${LIBTORRENT_VERSION}..." \
+        zip
+
+# Build libtorrent-rasterbar
+RUN echo "Building libtorrent-rasterbar ${LIBTORRENT_VERSION}..." \
     && curl -sL "https://github.com/arvidn/libtorrent/releases/download/v${LIBTORRENT_VERSION}/libtorrent-rasterbar-${LIBTORRENT_VERSION}.tar.gz" -o /opt/libtorrent.tar.gz \
     && tar -xzf /opt/libtorrent.tar.gz \
     && rm /opt/libtorrent.tar.gz \
@@ -74,11 +69,10 @@ RUN apt-get update \
     && cmake --build build --parallel $(nproc) \
     && cmake --install build \
     && cd /opt \
-    && rm -rf /opt/libtorrent-rasterbar-${LIBTORRENT_VERSION} \
-    #
-    # === Build qBittorrent ===
-    #
-    && echo "Building qBittorrent ${QBITTORRENT_VERSION}..." \
+    && rm -rf /opt/libtorrent-rasterbar-${LIBTORRENT_VERSION}
+
+# Build qBittorrent
+RUN echo "Building qBittorrent ${QBITTORRENT_VERSION}..." \
     && curl -sL "https://github.com/qbittorrent/qBittorrent/archive/release-${QBITTORRENT_VERSION}.tar.gz" -o /opt/qbittorrent.tar.gz \
     && tar -xzf /opt/qbittorrent.tar.gz \
     && rm /opt/qbittorrent.tar.gz \
@@ -91,11 +85,10 @@ RUN apt-get update \
     && cmake --build build --parallel $(nproc) \
     && cmake --install build \
     && cd /opt \
-    && rm -rf /opt/qBittorrent-release-${QBITTORRENT_VERSION} \
-    #
-    # === Cleanup build dependencies ===
-    #
-    && apt-get purge -y \
+    && rm -rf /opt/qBittorrent-release-${QBITTORRENT_VERSION}
+
+# Cleanup build dependencies
+RUN apt-get purge -y \
         build-essential \
         cmake \
         git \
