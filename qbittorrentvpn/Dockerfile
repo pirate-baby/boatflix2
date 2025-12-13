@@ -7,8 +7,10 @@ FROM debian:bookworm-slim
 WORKDIR /opt
 
 # Pin versions for reproducible builds
-ARG LIBTORRENT_VERSION=2.0.11
-ARG QBITTORRENT_VERSION=5.1.4
+# Note: qBittorrent 5.x requires Qt6, but Debian bookworm only has Qt5
+# Using qBittorrent 4.6.7 (last Qt5-compatible version)
+ARG LIBTORRENT_VERSION=2.0.10
+ARG QBITTORRENT_VERSION=4.6.7
 
 RUN usermod -u 99 nobody
 
