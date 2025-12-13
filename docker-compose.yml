@@ -29,49 +29,46 @@ services:
       - media_network
     restart: unless-stopped
 
-  gluetun:
-    image: qmcgaw/gluetun:latest
-    container_name: gluetun
+  # qBittorrent with built-in VPN (ARM64 compatible)
+  # Replaces separate gluetun + qbittorrent containers
+  qbittorrentvpn:
+    build: ./qbittorrentvpn
+    container_name: qbittorrentvpn
     cap_add:
       - NET_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+      - net.ipv6.conf.all.disable_ipv6=1
     environment:
-      - VPN_SERVICE_PROVIDER=private internet access
+      - VPN_ENABLED=yes
       - VPN_TYPE=openvpn
-      - OPENVPN_USER=${VPN_USER}
-      - OPENVPN_PASSWORD=${VPN_PASSWORD}
-      - SERVER_REGIONS=${VPN_REGION:-Netherlands}
-      - VPN_PORT_FORWARDING=off
-    ports:
-      - "8081:8081"  # qbittorrent webui
-    volumes:
-      - ./configs/gluetun:/gluetun
-    networks:
-      - media_network
-    healthcheck:
-      test: ["CMD", "/gluetun-entrypoint", "healthcheck"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-    restart: unless-stopped
-
-  qbittorrent:
-    image: linuxserver/qbittorrent:latest
-    container_name: qbittorrent
-    network_mode: "service:gluetun"
-    environment:
+      - VPN_USERNAME=${VPN_USER}
+      - VPN_PASSWORD=${VPN_PASSWORD}
+      - LAN_NETWORK=192.168.0.0/16,172.16.0.0/12,10.0.0.0/8
+      - NAME_SERVERS=1.1.1.1,8.8.8.8
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
-      - WEBUI_PORT=8081
+      - UMASK=002
+      - HEALTH_CHECK_HOST=one.one.one.one
+      - HEALTH_CHECK_INTERVAL=300
+      - RESTART_CONTAINER=yes
+      - ENABLE_SSL=no
+      - DEBUG=false
     volumes:
-      - ./configs/qBittorrent:/config/qBittorrent
-      - ${MEDIA_PATH}:/mnt/media
-    depends_on:
-      gluetun:
-        condition: service_healthy
+      - ./configs/qbittorrentvpn:/config
+      - ${MEDIA_PATH}/Downloads:/downloads
+      # Mount your VPN config file (OpenVPN .ovpn or WireGuard .conf)
+      # For OpenVPN: place your .ovpn file in ./configs/qbittorrentvpn/openvpn/
+      # For WireGuard: place wg0.conf in ./configs/qbittorrentvpn/wireguard/
+    ports:
+      - "8081:8080"  # qBittorrent WebUI
+      - "8999:8999"  # BitTorrent port
+      - "8999:8999/udp"
+    networks:
+      - media_network
     restart: unless-stopped
 
   nginx:

@@ -504,10 +504,179 @@ EOF
 }
 
 # ============================================================================
-# Section 6: Environment Setup
+# Section 6: qBittorrent VPN Setup
+# ============================================================================
+setup_qbittorrentvpn() {
+    log INFO "=== Section 6: qBittorrent VPN Setup ==="
+
+    local vpn_config_dir="$BOATFLIX_DIR/configs/qbittorrentvpn/openvpn"
+    local wireguard_config_dir="$BOATFLIX_DIR/configs/qbittorrentvpn/wireguard"
+    local pia_configs_dir="/tmp/pia-configs"
+
+    # Create config directories (idempotent - mkdir -p won't fail if exists)
+    mkdir -p "$vpn_config_dir"
+    mkdir -p "$wireguard_config_dir"
+    mkdir -p "$BOATFLIX_DIR/configs/qbittorrentvpn/qBittorrent/config"
+
+    # Check if any VPN config already exists (OpenVPN or WireGuard)
+    local has_ovpn=$(find "$vpn_config_dir" -maxdepth 1 -name "*.ovpn" 2>/dev/null | head -n1)
+    local has_wg=$(find "$wireguard_config_dir" -maxdepth 1 -name "*.conf" 2>/dev/null | head -n1)
+
+    if [[ -n "$has_ovpn" ]]; then
+        log INFO "OpenVPN config already present:"
+        ls -1 "$vpn_config_dir"/*.ovpn 2>/dev/null | while read f; do echo "  - $(basename "$f")"; done
+        echo ""
+        read -p "Download and replace with new PIA config? (y/N): " replace_config
+        if [[ ! "$replace_config" =~ ^[Yy]$ ]]; then
+            log INFO "Keeping existing OpenVPN configuration"
+        else
+            # Remove old configs before downloading new ones
+            rm -f "$vpn_config_dir"/*.ovpn
+            has_ovpn=""
+        fi
+    elif [[ -n "$has_wg" ]]; then
+        log INFO "WireGuard config already present:"
+        ls -1 "$wireguard_config_dir"/*.conf 2>/dev/null | while read f; do echo "  - $(basename "$f")"; done
+        log INFO "Skipping PIA OpenVPN download (WireGuard config exists)"
+    fi
+
+    # Download PIA OpenVPN configs if no config present
+    if [[ -z "$has_ovpn" && -z "$has_wg" ]]; then
+        log INFO "Downloading Private Internet Access OpenVPN configurations..."
+
+        # Clean up any previous download attempt
+        rm -rf "$pia_configs_dir"
+        mkdir -p "$pia_configs_dir"
+
+        if curl -sL "https://www.privateinternetaccess.com/openvpn/openvpn.zip" -o "$pia_configs_dir/pia-openvpn.zip"; then
+            log INFO "Downloaded PIA OpenVPN configs"
+
+            # Extract configs
+            unzip -q "$pia_configs_dir/pia-openvpn.zip" -d "$pia_configs_dir"
+
+            # List available regions
+            echo ""
+            log INFO "Available PIA regions:"
+            echo ""
+
+            local i=1
+            local region_list=()
+
+            # Show popular regions first
+            local popular_regions=("Netherlands" "Switzerland" "Sweden" "Germany" "UK London" "US East" "US West" "Canada")
+
+            echo "  Popular regions:"
+            for region in "${popular_regions[@]}"; do
+                local config_file=$(find "$pia_configs_dir" -maxdepth 1 -name "*.ovpn" -exec basename {} \; 2>/dev/null | grep -i "$(echo "$region" | tr ' ' '.')" | head -n1 || true)
+                if [[ -n "$config_file" ]]; then
+                    echo "    $i) ${config_file%.ovpn}"
+                    region_list+=("$config_file")
+                    ((i++))
+                fi
+            done
+
+            echo ""
+            echo "  Enter a number above, or type a region name (e.g., 'France', 'Japan')"
+            echo "  Or press Enter for default (Netherlands)"
+            echo ""
+            read -p "Select region: " region_selection
+
+            local selected_config=""
+
+            if [[ -z "$region_selection" ]]; then
+                # Default to Netherlands
+                selected_config=$(find "$pia_configs_dir" -maxdepth 1 -name "*Netherlands*" -o -name "*netherlands*" | head -n1)
+                if [[ -z "$selected_config" ]]; then
+                    selected_config=$(find "$pia_configs_dir" -maxdepth 1 -name "*.ovpn" | head -n1)
+                fi
+            elif [[ "$region_selection" =~ ^[0-9]+$ ]] && [[ $region_selection -ge 1 ]] && [[ $region_selection -le ${#region_list[@]} ]]; then
+                selected_config="$pia_configs_dir/${region_list[$((region_selection-1))]}"
+            else
+                # Search by name
+                selected_config=$(find "$pia_configs_dir" -maxdepth 1 -iname "*${region_selection}*" -name "*.ovpn" | head -n1)
+            fi
+
+            if [[ -n "$selected_config" && -f "$selected_config" ]]; then
+                cp "$selected_config" "$vpn_config_dir/"
+                local config_name=$(basename "$selected_config")
+                log INFO "Installed PIA config: $config_name"
+            else
+                log WARN "Could not find matching config. Copying Netherlands as default..."
+                local default_config=$(find "$pia_configs_dir" -maxdepth 1 -name "*.ovpn" | head -n1)
+                if [[ -n "$default_config" ]]; then
+                    cp "$default_config" "$vpn_config_dir/"
+                    log INFO "Installed: $(basename "$default_config")"
+                fi
+            fi
+
+            # Cleanup temp directory
+            rm -rf "$pia_configs_dir"
+        else
+            log ERROR "Failed to download PIA configs. Please manually place your .ovpn file in:"
+            log ERROR "  $vpn_config_dir/"
+        fi
+    fi
+
+    # Check if Docker image already exists
+    echo ""
+    local image_exists=""
+    if docker info &>/dev/null; then
+        # Check if image exists (built from compose or standalone)
+        if docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -qE "(qbittorrentvpn|boatflix.*qbittorrentvpn)"; then
+            image_exists="yes"
+            log INFO "qBittorrent VPN Docker image already exists"
+            docker images --format 'table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedSince}}' 2>/dev/null | grep -E "(REPOSITORY|qbittorrentvpn)" || true
+            echo ""
+            read -p "Rebuild the image? (y/N): " rebuild_image
+            if [[ ! "$rebuild_image" =~ ^[Yy]$ ]]; then
+                log INFO "Keeping existing Docker image"
+                log INFO "qBittorrent VPN setup complete"
+                return
+            fi
+        fi
+    fi
+
+    # Build the qbittorrentvpn Docker image
+    if [[ -z "$image_exists" ]]; then
+        log INFO "Building qBittorrent VPN Docker image (ARM64)..."
+        log WARN "This may take 30-60 minutes on Raspberry Pi (compiling from source)"
+        echo ""
+        read -p "Build qbittorrentvpn image now? (Y/n): " build_now
+    else
+        build_now="y"
+    fi
+
+    if [[ ! "$build_now" =~ ^[Nn]$ ]]; then
+        log INFO "Starting Docker build..."
+
+        # Check if Docker is available
+        if ! docker info &>/dev/null; then
+            log ERROR "Docker is not running or not accessible."
+            log ERROR "Make sure you've logged out and back in after being added to the docker group."
+            log WARN "You can build later with: docker compose build qbittorrentvpn"
+            return
+        fi
+
+        # Build the image
+        cd "$BOATFLIX_DIR"
+        if docker compose build qbittorrentvpn; then
+            log INFO "Successfully built qbittorrentvpn image!"
+        else
+            log ERROR "Docker build failed. Check the output above for errors."
+            log WARN "You can retry with: docker compose build qbittorrentvpn"
+        fi
+    else
+        log INFO "Skipping build. Run later with: docker compose build qbittorrentvpn"
+    fi
+
+    log INFO "qBittorrent VPN setup complete"
+}
+
+# ============================================================================
+# Section 7: Environment Setup
 # ============================================================================
 setup_environment() {
-    log INFO "=== Section 6: Environment Setup ==="
+    log INFO "=== Section 7: Environment Setup ==="
 
     local env_file="$BOATFLIX_DIR/.env"
     local env_example="$BOATFLIX_DIR/.env.example"
@@ -710,10 +879,10 @@ print_summary() {
     echo "  Witty Pi Scripts:   $WITTY_PI_DIR"
     echo ""
     echo "  Services configured:"
-    echo "    - Jellyfin     (http://localhost:8096)"
-    echo "    - ErsatzTV     (http://localhost:8409)"
-    echo "    - qBittorrent  (http://localhost:8080)"
-    echo "    - Manager API  (http://localhost:8000)"
+    echo "    - Jellyfin        (http://localhost:8096)"
+    echo "    - ErsatzTV        (http://localhost:8409)"
+    echo "    - qBittorrentVPN  (http://localhost:8081)"
+    echo "    - Manager API     (http://localhost:8000)"
     echo ""
     echo "  Next Steps:"
     echo "    1. Log out and back in (for docker group changes)"
@@ -761,6 +930,9 @@ main() {
     echo ""
 
     setup_environment
+    echo ""
+
+    setup_qbittorrentvpn
     echo ""
 
     print_summary
