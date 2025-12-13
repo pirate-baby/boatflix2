@@ -35,6 +35,7 @@ RUN apt-get update \
         ninja-build \
         pkg-config \
         qtbase5-dev \
+        qtbase5-private-dev \
         qttools5-dev \
         zlib1g-dev \
         # Runtime dependencies
@@ -74,10 +75,13 @@ RUN echo "Building libtorrent-rasterbar ${LIBTORRENT_VERSION}..." \
     && rm -rf /opt/libtorrent-rasterbar-${LIBTORRENT_VERSION}
 
 # Build qBittorrent
-RUN echo "Building qBittorrent ${QBITTORRENT_VERSION}..." \
-    && curl -sL "https://github.com/qbittorrent/qBittorrent/archive/release-${QBITTORRENT_VERSION}.tar.gz" -o /opt/qbittorrent.tar.gz \
+RUN set -ex \
+    && echo "Building qBittorrent ${QBITTORRENT_VERSION}..." \
+    && curl -fSL "https://github.com/qbittorrent/qBittorrent/archive/release-${QBITTORRENT_VERSION}.tar.gz" -o /opt/qbittorrent.tar.gz \
+    && ls -la /opt/qbittorrent.tar.gz \
     && tar -xzf /opt/qbittorrent.tar.gz \
     && rm /opt/qbittorrent.tar.gz \
+    && ls -la /opt/ \
     && cd /opt/qBittorrent-release-${QBITTORRENT_VERSION} \
     && cmake -G Ninja -B build \
         -DCMAKE_BUILD_TYPE=Release \
@@ -102,6 +106,7 @@ RUN apt-get purge -y \
         ninja-build \
         pkg-config \
         qtbase5-dev \
+        qtbase5-private-dev \
         qttools5-dev \
         zlib1g-dev \
     && apt-get autoremove -y \
