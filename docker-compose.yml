@@ -29,51 +29,37 @@ services:
       - media_network
     restart: unless-stopped
 
-  vpn:
-    image: qmcgaw/gluetun:latest
-    container_name: vpn
+  qbittorrentvpn:
+    image: binhex/arch-qbittorrentvpn:latest
+    container_name: qbittorrentvpn
     cap_add:
       - NET_ADMIN
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
     environment:
-      - VPN_SERVICE_PROVIDER=private internet access
-      - OPENVPN_USER=${VPN_USER}
-      - OPENVPN_PASSWORD=${VPN_PASSWORD}
-      - SERVER_REGIONS=${VPN_REGION}
+      - VPN_ENABLED=yes
+      - VPN_PROV=pia
+      - VPN_CLIENT=openvpn
+      - VPN_USER=${VPN_USER}
+      - VPN_PASS=${VPN_PASSWORD}
+      - STRICT_PORT_FORWARD=yes
+      - ENABLE_PRIVOXY=no
+      - ENABLE_SOCKS=no
+      - LAN_NETWORK=${LAN_NETWORK:-192.168.1.0/24}
+      - NAME_SERVERS=1.1.1.1,1.0.0.1
+      - WEBUI_PORT=8081
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - UMASK=002
+      - DEBUG=false
     ports:
       - "8081:8081"  # qbittorrent webui
-      - "6881:6881"  # qbittorrent torrent port
-      - "6881:6881/udp"
-    networks:
-      - media_network
-    volumes:
-      - ./configs/gluetun:/gluetun
-    logging:
-      driver: json-file
-      options:
-        max-file: '2'
-        max-size: 200k
-    restart: unless-stopped
-
-  qbittorrent:
-    image: linuxserver/qbittorrent:latest
-    container_name: qbittorrent
-    network_mode: "service:vpn"
-    environment:
-      - WEBUI_PORT=8081
     volumes:
       - ./configs/qbittorrent:/config
       - ${MEDIA_PATH}:/mnt/media
-    depends_on:
-      vpn:
-        condition: service_started
-    healthcheck:
-      test: [CMD, curl, -fsL, ipconfig.me]
-      interval: 60s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-      start_interval: 5s
-    restart: always
+    networks:
+      - media_network
+    restart: unless-stopped
 
   nginx:
     image: nginx:alpine

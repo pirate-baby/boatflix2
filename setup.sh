@@ -494,22 +494,14 @@ setup_environment() {
     local env_file="$BOATFLIX_DIR/.env"
     local env_example="$BOATFLIX_DIR/.env.example"
 
-    # Copy .env.example to .env if it doesn't exist
-    if [[ -f "$env_file" ]]; then
-        log INFO ".env file already exists"
-        read -p "Would you like to reconfigure it? (y/N): " reconfigure
-        if [[ ! "$reconfigure" =~ ^[Yy]$ ]]; then
-            log INFO "Keeping existing .env configuration"
-            return
-        fi
-    fi
-
-    if [[ -f "$env_example" ]]; then
-        cp "$env_example" "$env_file"
-        log INFO "Copied .env.example to .env"
-    else
-        # Create .env from scratch
-        cat > "$env_file" << 'EOF'
+    # Create .env if it doesn't exist
+    if [[ ! -f "$env_file" ]]; then
+        if [[ -f "$env_example" ]]; then
+            cp "$env_example" "$env_file"
+            log INFO "Created .env from .env.example"
+        else
+            # Create .env from scratch
+            cat > "$env_file" << 'EOF'
 # User/Group IDs for file permissions
 PUID=1000
 PGID=1000
@@ -532,28 +524,59 @@ RCLONE_BUCKET=
 RCLONE_CONFIG=./rclone.conf
 SYNC_CRON=0 2 * * *
 SYNC_ENABLED=true
+
+# VPN Configuration (for qBittorrent)
+VPN_USER=
+VPN_PASSWORD=
+LAN_NETWORK=192.168.1.0/24
 EOF
-        log INFO "Created new .env file"
+            log INFO "Created new .env file"
+        fi
+    else
+        log INFO ".env file already exists, will preserve existing values"
+        # Ensure VPN fields exist (add them if missing)
+        if ! grep -q "^VPN_USER=" "$env_file"; then
+            echo "" >> "$env_file"
+            echo "# VPN Configuration (for qBittorrent)" >> "$env_file"
+            echo "VPN_USER=" >> "$env_file"
+            log INFO "Added VPN_USER field to .env"
+        fi
+        if ! grep -q "^VPN_PASSWORD=" "$env_file"; then
+            echo "VPN_PASSWORD=" >> "$env_file"
+            log INFO "Added VPN_PASSWORD field to .env"
+        fi
+        if ! grep -q "^LAN_NETWORK=" "$env_file"; then
+            echo "LAN_NETWORK=192.168.1.0/24" >> "$env_file"
+            log INFO "Added LAN_NETWORK field to .env"
+        fi
     fi
 
+    # Helper function to get current value from .env
+    get_env_value() {
+        grep "^$1=" "$env_file" 2>/dev/null | cut -d'=' -f2-
+    }
+
     echo ""
-    log INFO "Configuring environment variables..."
+    log INFO "Configuring environment variables (press Enter to keep existing values)..."
     echo ""
 
-    # Get PUID (current user's ID)
-    local current_puid=$(id -u)
-    read -p "PUID (user ID) [$current_puid]: " puid
-    puid=${puid:-$current_puid}
+    # Get PUID (prefer existing, fallback to current user's ID)
+    local existing_puid=$(get_env_value "PUID")
+    local default_puid=${existing_puid:-$(id -u)}
+    read -p "PUID (user ID) [$default_puid]: " puid
+    puid=${puid:-$default_puid}
 
-    # Get PGID (current user's group ID)
-    local current_pgid=$(id -g)
-    read -p "PGID (group ID) [$current_pgid]: " pgid
-    pgid=${pgid:-$current_pgid}
+    # Get PGID (prefer existing, fallback to current user's group ID)
+    local existing_pgid=$(get_env_value "PGID")
+    local default_pgid=${existing_pgid:-$(id -g)}
+    read -p "PGID (group ID) [$default_pgid]: " pgid
+    pgid=${pgid:-$default_pgid}
 
-    # Get timezone
-    local current_tz=$(cat /etc/timezone 2>/dev/null || echo "UTC")
-    read -p "Timezone [$current_tz]: " tz
-    tz=${tz:-$current_tz}
+    # Get timezone (prefer existing, fallback to system timezone)
+    local existing_tz=$(get_env_value "TZ")
+    local default_tz=${existing_tz:-$(cat /etc/timezone 2>/dev/null || echo "UTC")}
+    read -p "Timezone [$default_tz]: " tz
+    tz=${tz:-$default_tz}
 
     # Update .env file
     sed -i "s|^PUID=.*|PUID=$puid|" "$env_file"
@@ -564,10 +587,72 @@ EOF
 
     # TMDB API Key (optional)
     echo ""
-    read -p "TMDB API Key (optional, press Enter to skip): " tmdb_key
+    local existing_tmdb=$(get_env_value "TMDB_API_KEY")
+    if [[ -n "$existing_tmdb" ]]; then
+        read -p "TMDB API Key [keep existing]: " tmdb_key
+    else
+        read -p "TMDB API Key (optional, press Enter to skip): " tmdb_key
+    fi
     if [[ -n "$tmdb_key" ]]; then
         sed -i "s|^TMDB_API_KEY=.*|TMDB_API_KEY=$tmdb_key|" "$env_file"
     fi
+
+    # VPN Configuration
+    echo ""
+    log INFO "VPN Configuration (for qBittorrent with PIA)"
+    echo ""
+    local existing_vpn_user=$(get_env_value "VPN_USER")
+    local existing_vpn_pass=$(get_env_value "VPN_PASSWORD")
+
+    if [[ -n "$existing_vpn_user" ]]; then
+        read -p "PIA VPN Username [$existing_vpn_user]: " vpn_user
+        vpn_user=${vpn_user:-$existing_vpn_user}
+    else
+        read -p "PIA VPN Username: " vpn_user
+    fi
+
+    if [[ -n "$existing_vpn_pass" ]]; then
+        read -sp "PIA VPN Password [keep existing, or enter new]: " vpn_pass
+        echo ""
+        vpn_pass=${vpn_pass:-$existing_vpn_pass}
+    else
+        read -sp "PIA VPN Password: " vpn_pass
+        echo ""
+    fi
+
+    if [[ -n "$vpn_user" ]]; then
+        sed -i "s|^VPN_USER=.*|VPN_USER=$vpn_user|" "$env_file"
+    fi
+    if [[ -n "$vpn_pass" ]]; then
+        sed -i "s|^VPN_PASSWORD=.*|VPN_PASSWORD=$vpn_pass|" "$env_file"
+    fi
+
+    # Auto-detect LAN network
+    local lan_network=""
+    local existing_lan=$(get_env_value "LAN_NETWORK")
+
+    # Try to detect the primary network interface's subnet
+    local detected_lan=$(ip -o -f inet addr show 2>/dev/null | grep -v '127.0.0.1' | head -n1 | awk '{print $4}' | sed 's/\.[0-9]*\//.0\//')
+
+    if [[ -z "$detected_lan" ]]; then
+        # Fallback: try hostname -I approach
+        local ip_addr=$(hostname -I 2>/dev/null | awk '{print $1}')
+        if [[ -n "$ip_addr" ]]; then
+            # Convert IP to /24 subnet (e.g., 192.168.1.50 -> 192.168.1.0/24)
+            detected_lan=$(echo "$ip_addr" | sed 's/\.[0-9]*$/.0\/24/')
+        fi
+    fi
+
+    # Prefer existing value, fallback to detected, then default
+    lan_network=${existing_lan:-${detected_lan:-"192.168.1.0/24"}}
+
+    if [[ -n "$detected_lan" && "$detected_lan" != "$lan_network" ]]; then
+        log INFO "Detected LAN: $detected_lan (current: $lan_network)"
+    fi
+    read -p "LAN Network (for VPN split tunnel) [$lan_network]: " user_lan
+    lan_network=${user_lan:-$lan_network}
+
+    sed -i "s|^LAN_NETWORK=.*|LAN_NETWORK=$lan_network|" "$env_file"
 
     chmod 600 "$env_file"
 
@@ -576,6 +661,7 @@ EOF
     echo "  PGID=$pgid"
     echo "  TZ=$tz"
     echo "  MEDIA_PATH=$MEDIA_MOUNT"
+    echo "  LAN_NETWORK=$lan_network"
 
     log INFO "Environment setup complete"
 }
