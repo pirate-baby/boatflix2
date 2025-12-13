@@ -118,6 +118,24 @@ install_prerequisites() {
 setup_external_hdd() {
     log INFO "=== Section 2: External HDD Setup ==="
 
+    # Check if already mounted - if so, skip drive setup
+    if mountpoint -q "$MEDIA_MOUNT" 2>/dev/null; then
+        log INFO "External HDD already mounted at ${MEDIA_MOUNT}"
+        log INFO "Skipping drive configuration"
+
+        # Still create folder structure if needed
+        log INFO "Ensuring Jellyfin folder structure exists..."
+        mkdir -p "$MEDIA_MOUNT/Movies"
+        mkdir -p "$MEDIA_MOUNT/Shows"
+        mkdir -p "$MEDIA_MOUNT/Music"
+        mkdir -p "$MEDIA_MOUNT/Commercials"
+        mkdir -p "$MEDIA_MOUNT/Books"
+        mkdir -p "$MEDIA_MOUNT/Downloads"
+        mkdir -p "$MEDIA_MOUNT/Downloads/complete"
+        mkdir -p "$MEDIA_MOUNT/Downloads/incomplete"
+        return
+    fi
+
     # Create mount point
     if [[ ! -d "$MEDIA_MOUNT" ]]; then
         log INFO "Creating mount point ${MEDIA_MOUNT}..."
