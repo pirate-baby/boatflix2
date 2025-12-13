@@ -42,6 +42,7 @@ RUN apt-get update \
         dos2unix \
         inetutils-ping \
         ipcalc \
+        iproute2 \
         iptables \
         kmod \
         libqt5network5 \
