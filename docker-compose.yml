@@ -44,7 +44,6 @@ services:
       - SERVER_REGIONS=${VPN_REGION:-Netherlands}
       - VPN_PORT_FORWARDING=on
       - VPN_PORT_FORWARDING_UP_COMMAND=/bin/sh -c 'wget -q -O - --post-data="json={\"listen_port\":{{PORT}}}" http://localhost:8081/api/v2/app/setPreferences 2>/dev/null || true'
-      - FIREWALL_VPN_INPUT_PORTS={{PORT}}
     ports:
       - "8081:8081"  # qbittorrent webui
     volumes:
