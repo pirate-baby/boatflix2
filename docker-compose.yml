@@ -67,7 +67,7 @@ services:
       - TZ=${TZ}
       - WEBUI_PORT=8081
     volumes:
-      - ./configs/qBittorrent.conf:/config/qBittorrent/qBittorrent.conf
+      - ./configs/qBittorrent:/config/qBittorrent
       - ${MEDIA_PATH}:/mnt/media
     depends_on:
       gluetun:
