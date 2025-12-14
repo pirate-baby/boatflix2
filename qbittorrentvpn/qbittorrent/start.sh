@@ -17,6 +17,33 @@ if [ ! -e /config/qBittorrent/config/qBittorrent.conf ]; then
 	chown ${PUID}:${PGID} /config/qBittorrent/config/qBittorrent.conf
 fi
 
+# Configure qBittorrent to bind to the VPN interface (tun0/wg0)
+# This ensures all torrent traffic goes through the VPN
+# VPN_DEVICE_TYPE is already set to tun0 or wg0 by openvpn/start.sh
+VPN_INTERFACE="${VPN_DEVICE_TYPE}"
+echo "[INFO] Configuring qBittorrent to bind to VPN interface: ${VPN_INTERFACE}" | ts '%Y-%m-%d %H:%M:%.S'
+
+# Remove any existing interface settings and add the correct ones
+sed -i '/^Session\\Interface/d' "/config/qBittorrent/config/qBittorrent.conf"
+sed -i '/^Session\\InterfaceName/d' "/config/qBittorrent/config/qBittorrent.conf"
+sed -i '/^Connection\\Interface/d' "/config/qBittorrent/config/qBittorrent.conf"
+sed -i '/^Advanced\\Network\\Interface/d' "/config/qBittorrent/config/qBittorrent.conf"
+
+# Add interface binding under [BitTorrent] section
+if grep -q '^\[BitTorrent\]' "/config/qBittorrent/config/qBittorrent.conf"; then
+	sed -i '/^\[BitTorrent\]/a Session\\Interface='"${VPN_INTERFACE}"'\nSession\\InterfaceName='"${VPN_INTERFACE}"'' "/config/qBittorrent/config/qBittorrent.conf"
+else
+	echo "[BitTorrent]" >> "/config/qBittorrent/config/qBittorrent.conf"
+	echo "Session\\Interface=${VPN_INTERFACE}" >> "/config/qBittorrent/config/qBittorrent.conf"
+	echo "Session\\InterfaceName=${VPN_INTERFACE}" >> "/config/qBittorrent/config/qBittorrent.conf"
+fi
+
+# Also add under [Preferences] for older qBittorrent versions
+if ! grep -q 'Connection\\Interface=' "/config/qBittorrent/config/qBittorrent.conf"; then
+	echo "Connection\\Interface=${VPN_INTERFACE}" >> "/config/qBittorrent/config/qBittorrent.conf"
+	echo "Connection\\InterfaceName=${VPN_INTERFACE}" >> "/config/qBittorrent/config/qBittorrent.conf"
+fi
+
 export INSTALL_PYTHON3=$(echo "${INSTALL_PYTHON3,,}")
 if [[ $INSTALL_PYTHON3 == "1" || $INSTALL_PYTHON3 == "true" || $INSTALL_PYTHON3 == "yes" ]]; then
 	/bin/bash /etc/qbittorrent/install-python3.sh
