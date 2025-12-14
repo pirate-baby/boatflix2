@@ -17,31 +17,58 @@ if [ ! -e /config/qBittorrent/config/qBittorrent.conf ]; then
 	chown ${PUID}:${PGID} /config/qBittorrent/config/qBittorrent.conf
 fi
 
-# Configure qBittorrent to bind to the VPN interface (tun0/wg0)
+# Configure qBittorrent to bind to the VPN interface (tun0/wg0) and its IP
 # This ensures all torrent traffic goes through the VPN
 # VPN_DEVICE_TYPE is already set to tun0 or wg0 by openvpn/start.sh
 VPN_INTERFACE="${VPN_DEVICE_TYPE}"
+
+# Get the IP address of the VPN interface
+VPN_IP=$(ip -4 addr show "${VPN_INTERFACE}" 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)
+
+if [[ -z "${VPN_IP}" ]]; then
+	echo "[WARNING] Could not determine VPN IP address for ${VPN_INTERFACE}, will use interface binding only" | ts '%Y-%m-%d %H:%M:%.S'
+else
+	echo "[INFO] VPN IP address detected: ${VPN_IP}" | ts '%Y-%m-%d %H:%M:%.S'
+fi
+
 echo "[INFO] Configuring qBittorrent to bind to VPN interface: ${VPN_INTERFACE}" | ts '%Y-%m-%d %H:%M:%.S'
 
-# Remove any existing interface settings and add the correct ones
-sed -i '/^Session\\Interface/d' "/config/qBittorrent/config/qBittorrent.conf"
-sed -i '/^Session\\InterfaceName/d' "/config/qBittorrent/config/qBittorrent.conf"
-sed -i '/^Connection\\Interface/d' "/config/qBittorrent/config/qBittorrent.conf"
-sed -i '/^Advanced\\Network\\Interface/d' "/config/qBittorrent/config/qBittorrent.conf"
+# Remove any existing interface/address settings
+sed -i '/^Session\\Interface=/d' "/config/qBittorrent/config/qBittorrent.conf"
+sed -i '/^Session\\InterfaceName=/d' "/config/qBittorrent/config/qBittorrent.conf"
+sed -i '/^Session\\InterfaceAddress=/d' "/config/qBittorrent/config/qBittorrent.conf"
+sed -i '/^Connection\\Interface=/d' "/config/qBittorrent/config/qBittorrent.conf"
+sed -i '/^Connection\\InterfaceName=/d' "/config/qBittorrent/config/qBittorrent.conf"
+sed -i '/^Connection\\InterfaceAddress=/d' "/config/qBittorrent/config/qBittorrent.conf"
 
-# Add interface binding under [BitTorrent] section
+# Add interface and IP binding under [BitTorrent] section
 if grep -q '^\[BitTorrent\]' "/config/qBittorrent/config/qBittorrent.conf"; then
-	sed -i '/^\[BitTorrent\]/a Session\\Interface='"${VPN_INTERFACE}"'\nSession\\InterfaceName='"${VPN_INTERFACE}"'' "/config/qBittorrent/config/qBittorrent.conf"
+	# Add settings after [BitTorrent] header
+	sed -i '/^\[BitTorrent\]/a Session\\Interface='"${VPN_INTERFACE}"'' "/config/qBittorrent/config/qBittorrent.conf"
+	sed -i '/^Session\\Interface=/a Session\\InterfaceName='"${VPN_INTERFACE}"'' "/config/qBittorrent/config/qBittorrent.conf"
+	if [[ -n "${VPN_IP}" ]]; then
+		sed -i '/^Session\\InterfaceName=/a Session\\InterfaceAddress='"${VPN_IP}"'' "/config/qBittorrent/config/qBittorrent.conf"
+	fi
 else
 	echo "[BitTorrent]" >> "/config/qBittorrent/config/qBittorrent.conf"
 	echo "Session\\Interface=${VPN_INTERFACE}" >> "/config/qBittorrent/config/qBittorrent.conf"
 	echo "Session\\InterfaceName=${VPN_INTERFACE}" >> "/config/qBittorrent/config/qBittorrent.conf"
+	if [[ -n "${VPN_IP}" ]]; then
+		echo "Session\\InterfaceAddress=${VPN_IP}" >> "/config/qBittorrent/config/qBittorrent.conf"
+	fi
 fi
 
-# Also add under [Preferences] for older qBittorrent versions
+# Also add under [Preferences] section for compatibility
+if ! grep -q '^\[Preferences\]' "/config/qBittorrent/config/qBittorrent.conf"; then
+	echo "[Preferences]" >> "/config/qBittorrent/config/qBittorrent.conf"
+fi
+# Add Connection settings if not present
 if ! grep -q 'Connection\\Interface=' "/config/qBittorrent/config/qBittorrent.conf"; then
 	echo "Connection\\Interface=${VPN_INTERFACE}" >> "/config/qBittorrent/config/qBittorrent.conf"
 	echo "Connection\\InterfaceName=${VPN_INTERFACE}" >> "/config/qBittorrent/config/qBittorrent.conf"
+	if [[ -n "${VPN_IP}" ]]; then
+		echo "Connection\\InterfaceAddress=${VPN_IP}" >> "/config/qBittorrent/config/qBittorrent.conf"
+	fi
 fi
 
 export INSTALL_PYTHON3=$(echo "${INSTALL_PYTHON3,,}")
