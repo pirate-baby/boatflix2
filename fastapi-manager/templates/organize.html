@@ -24,11 +24,8 @@
                 <p><code>{{ downloads_path }}</code></p>
             </hgroup>
             <div class="header-actions">
-                <label>
-                    <input type="checkbox" id="batch-mode" onchange="toggleBatchMode()">
-                    Batch Mode
-                </label>
                 <button class="outline" onclick="refreshFileList()">Refresh</button>
+                <button id="analyze-all-btn" onclick="analyzeAll()">Analyze All</button>
             </div>
         </div>
     </header>
@@ -39,14 +36,23 @@
         </div>
     </div>
 
-    <!-- Batch Actions (hidden by default) -->
-    <footer id="batch-actions" style="display: none;">
-        <span id="batch-count">0 items selected</span>
-        <button onclick="batchAnalyze()">Analyze Selected</button>
+    <!-- Bulk Actions (hidden by default) -->
+    <footer id="bulk-actions" style="display: none;">
+        <div class="bulk-actions-left">
+            <label class="select-all-label">
+                <input type="checkbox" id="select-all" onchange="toggleSelectAll()">
+                Select All
+            </label>
+            <span id="bulk-count">0 items selected</span>
+        </div>
+        <div class="bulk-actions-right">
+            <button class="secondary" onclick="deselectAll()">Deselect All</button>
+            <button id="bulk-move-btn" onclick="bulkMove()">Move Selected</button>
+        </div>
     </footer>
 </article>
 
-<!-- Analysis Modal -->
+<!-- Analysis Modal (for editing individual items) -->
 <dialog id="analyze-modal">
     <article>
         <header>
@@ -68,10 +74,13 @@
 <script>
     let currentAnalysis = null;
     let selectedTmdbMatch = null;
-    let batchMode = false;
-    let selectedItems = new Set();
+    let analyzedItems = new Map(); // path -> analysis result
+    let selectedItems = new Set(); // paths of selected items
 
     function refreshFileList() {
+        analyzedItems.clear();
+        selectedItems.clear();
+        updateBulkActions();
         htmx.trigger('#file-list', 'load');
     }
 
@@ -87,43 +96,34 @@
             const data = JSON.parse(response);
             if (!data.items || data.items.length === 0) {
                 target.innerHTML = '<p class="muted">No files in Downloads folder</p>';
+                document.getElementById('bulk-actions').style.display = 'none';
                 return;
             }
 
+            // Show simple list initially (before analysis)
             const html = `
-                <table class="file-table">
-                    <thead>
-                        <tr>
-                            ${batchMode ? '<th class="checkbox-col"></th>' : ''}
-                            <th>Name</th>
-                            <th>Type</th>
-                            <th>Size</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${data.items.map(item => `
-                            <tr class="file-row ${item.is_directory ? 'folder' : ''}" data-path="${escapeHtml(item.path)}">
-                                ${batchMode ? `
-                                    <td class="checkbox-col">
-                                        <input type="checkbox" onchange="toggleSelect('${escapeHtml(item.path)}', this.checked)">
-                                    </td>
-                                ` : ''}
-                                <td>
+                <div id="items-container">
+                    ${data.items.map(item => `
+                        <div class="bulk-item" data-path="${escapeHtml(item.path)}">
+                            <div class="bulk-item-header">
+                                <div class="bulk-item-info">
                                     <span class="file-icon">${getFileIcon(item.type, item.is_directory)}</span>
-                                    ${escapeHtml(item.name)}
-                                </td>
-                                <td><span class="badge badge-${item.type}">${item.is_directory ? 'folder' : item.type}</span></td>
-                                <td>${item.size_formatted}</td>
-                                <td>
-                                    <button class="outline small" onclick="analyzeItem('${escapeHtml(item.path)}')">
-                                        Organize
-                                    </button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
+                                    <div class="bulk-item-name">
+                                        <strong>${escapeHtml(item.name)}</strong>
+                                        <span class="bulk-item-meta">
+                                            <span class="badge badge-${item.type}">${item.is_directory ? 'folder' : item.type}</span>
+                                            <span class="muted">${item.size_formatted}</span>
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="bulk-item-actions">
+                                    <span class="analysis-status" data-path="${escapeHtml(item.path)}"></span>
+                                </div>
+                            </div>
+                            <div class="bulk-item-analysis" data-path="${escapeHtml(item.path)}" style="display: none;"></div>
+                        </div>
+                    `).join('')}
+                </div>
             `;
             target.innerHTML = html;
         } catch (e) {
@@ -141,37 +141,245 @@
         }
     }
 
-    function toggleBatchMode() {
-        batchMode = document.getElementById('batch-mode').checked;
-        selectedItems.clear();
-        updateBatchCount();
-        refreshFileList();
-        document.getElementById('batch-actions').style.display = batchMode ? 'flex' : 'none';
+    async function analyzeAll() {
+        const btn = document.getElementById('analyze-all-btn');
+        btn.disabled = true;
+        btn.textContent = 'Analyzing...';
+
+        // Get all item paths
+        const items = document.querySelectorAll('.bulk-item');
+        const paths = Array.from(items).map(item => item.dataset.path);
+
+        if (paths.length === 0) {
+            btn.disabled = false;
+            btn.textContent = 'Analyze All';
+            return;
+        }
+
+        // Show loading status for all items
+        paths.forEach(path => {
+            const statusEl = document.querySelector(`.analysis-status[data-path="${CSS.escape(path)}"]`);
+            if (statusEl) {
+                statusEl.innerHTML = '<span aria-busy="true" class="analyzing-spinner"></span>';
+            }
+        });
+
+        try {
+            const response = await fetch('/api/organize/analyze-batch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ paths })
+            });
+
+            if (!response.ok) {
+                throw new Error('Batch analysis failed');
+            }
+
+            const data = await response.json();
+
+            // Process results
+            for (const result of data.results) {
+                if (result.error) {
+                    const statusEl = document.querySelector(`.analysis-status[data-path="${CSS.escape(result.path)}"]`);
+                    if (statusEl) {
+                        statusEl.innerHTML = `<span class="badge badge-error">Error</span>`;
+                    }
+                    continue;
+                }
+
+                analyzedItems.set(result.path, result);
+                renderInlineAnalysis(result);
+            }
+
+            // Show bulk actions
+            document.getElementById('bulk-actions').style.display = 'flex';
+            updateBulkActions();
+
+        } catch (error) {
+            showToast(error.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Analyze All';
+        }
     }
 
-    function toggleSelect(path, checked) {
+    function renderInlineAnalysis(analysis) {
+        const container = document.querySelector(`.bulk-item-analysis[data-path="${CSS.escape(analysis.path)}"]`);
+        const statusEl = document.querySelector(`.analysis-status[data-path="${CSS.escape(analysis.path)}"]`);
+
+        if (!container || !statusEl) return;
+
+        // Determine the first TMDB match or use parsed metadata
+        const tmdbMatch = analysis.tmdb_matches && analysis.tmdb_matches.length > 0 ? analysis.tmdb_matches[0] : null;
+        const meta = analysis.metadata || {};
+
+        // Build title display
+        let title = tmdbMatch?.title || meta.title || analysis.name;
+        let year = tmdbMatch?.year || meta.year;
+        let displayTitle = title;
+        if (year) displayTitle += ` (${year})`;
+
+        // Build destination preview
+        let destination = '';
+        if (analysis.media_type === 'movie') {
+            destination = `Movies/${sanitizeForPreview(title)}${year ? ` (${year})` : ''}`;
+        } else if (analysis.media_type === 'tv') {
+            const season = meta.season || 1;
+            destination = `Shows/${sanitizeForPreview(title)}/Season ${String(season).padStart(2, '0')}`;
+        } else if (analysis.media_type === 'music') {
+            const artist = meta.artist || 'Unknown Artist';
+            const album = meta.album || '';
+            destination = `Music/${sanitizeForPreview(artist)}${album ? '/' + sanitizeForPreview(album) : ''}`;
+        }
+
+        const confidenceClass = analysis.confidence === 'high' ? 'success' :
+                               analysis.confidence === 'medium' ? 'warning' : 'error';
+
+        // Update status area with checkbox
+        statusEl.innerHTML = `
+            <label class="bulk-checkbox-label">
+                <input type="checkbox" class="bulk-checkbox" data-path="${escapeHtml(analysis.path)}"
+                       onchange="toggleItemSelection('${escapeHtml(analysis.path)}', this.checked)" checked>
+            </label>
+        `;
+
+        // Auto-select analyzed items
+        selectedItems.add(analysis.path);
+        updateBulkCount();
+
+        // Build inline analysis display
+        container.innerHTML = `
+            <div class="inline-analysis">
+                <div class="inline-analysis-main">
+                    ${tmdbMatch?.poster_path ?
+                        `<img src="${tmdbMatch.poster_path}" alt="${escapeHtml(title)}" class="inline-poster">` :
+                        `<div class="inline-poster-placeholder">${getMediaTypeIcon(analysis.media_type)}</div>`
+                    }
+                    <div class="inline-analysis-info">
+                        <div class="inline-analysis-header">
+                            <span class="badge badge-${analysis.media_type}">${analysis.media_type}</span>
+                            <span class="badge badge-${confidenceClass}">${analysis.confidence}</span>
+                            ${analysis.tmdb_matches?.length > 1 ?
+                                `<span class="badge badge-muted">${analysis.tmdb_matches.length} matches</span>` : ''
+                            }
+                        </div>
+                        <h4 class="inline-title">${escapeHtml(displayTitle)}</h4>
+                        ${analysis.media_type === 'tv' && meta.season !== undefined ?
+                            `<p class="inline-meta">Season ${meta.season}${meta.episode !== undefined ? `, Episode ${meta.episode}` : ''}</p>` : ''
+                        }
+                        ${analysis.media_type === 'music' ?
+                            `<p class="inline-meta">${escapeHtml(meta.artist || 'Unknown Artist')}${meta.album ? ' - ' + escapeHtml(meta.album) : ''}</p>` : ''
+                        }
+                        <p class="inline-destination">
+                            <span class="destination-label">Destination:</span>
+                            <code>${escapeHtml(destination)}</code>
+                        </p>
+                    </div>
+                </div>
+                <div class="inline-analysis-actions">
+                    <button class="outline small" onclick="editItem('${escapeHtml(analysis.path)}')">Edit</button>
+                </div>
+            </div>
+        `;
+
+        container.style.display = 'block';
+    }
+
+    function sanitizeForPreview(name) {
+        if (!name) return '';
+        return name.replace(/[<>:"/\\|?*]/g, '').trim();
+    }
+
+    function getMediaTypeIcon(mediaType) {
+        switch (mediaType) {
+            case 'movie': return '🎬';
+            case 'tv': return '📺';
+            case 'music': return '🎵';
+            default: return '📄';
+        }
+    }
+
+    function toggleItemSelection(path, checked) {
         if (checked) {
             selectedItems.add(path);
         } else {
             selectedItems.delete(path);
         }
-        updateBatchCount();
+        updateBulkCount();
+        updateSelectAllCheckbox();
     }
 
-    function updateBatchCount() {
-        document.getElementById('batch-count').textContent = `${selectedItems.size} items selected`;
+    function toggleSelectAll() {
+        const selectAll = document.getElementById('select-all').checked;
+        const checkboxes = document.querySelectorAll('.bulk-checkbox');
+
+        checkboxes.forEach(cb => {
+            cb.checked = selectAll;
+            const path = cb.dataset.path;
+            if (selectAll) {
+                selectedItems.add(path);
+            } else {
+                selectedItems.delete(path);
+            }
+        });
+
+        updateBulkCount();
     }
 
-    async function batchAnalyze() {
-        if (selectedItems.size === 0) {
-            showToast('No items selected', 'error');
+    function updateSelectAllCheckbox() {
+        const checkboxes = document.querySelectorAll('.bulk-checkbox');
+        const selectAll = document.getElementById('select-all');
+
+        if (checkboxes.length === 0) {
+            selectAll.checked = false;
+            selectAll.indeterminate = false;
+        } else if (selectedItems.size === checkboxes.length) {
+            selectAll.checked = true;
+            selectAll.indeterminate = false;
+        } else if (selectedItems.size === 0) {
+            selectAll.checked = false;
+            selectAll.indeterminate = false;
+        } else {
+            selectAll.checked = false;
+            selectAll.indeterminate = true;
+        }
+    }
+
+    function deselectAll() {
+        selectedItems.clear();
+        document.querySelectorAll('.bulk-checkbox').forEach(cb => cb.checked = false);
+        document.getElementById('select-all').checked = false;
+        updateBulkCount();
+    }
+
+    function updateBulkCount() {
+        document.getElementById('bulk-count').textContent = `${selectedItems.size} item${selectedItems.size !== 1 ? 's' : ''} selected`;
+        document.getElementById('bulk-move-btn').disabled = selectedItems.size === 0;
+    }
+
+    function updateBulkActions() {
+        const hasAnalyzed = analyzedItems.size > 0;
+        document.getElementById('bulk-actions').style.display = hasAnalyzed ? 'flex' : 'none';
+        updateBulkCount();
+        updateSelectAllCheckbox();
+    }
+
+    function editItem(path) {
+        const analysis = analyzedItems.get(path);
+        if (!analysis) {
+            showToast('Item not analyzed', 'error');
             return;
         }
 
-        // For now, analyze first selected item
-        // TODO: Implement proper batch processing
-        const firstItem = Array.from(selectedItems)[0];
-        await analyzeItem(firstItem);
+        currentAnalysis = analysis;
+        selectedTmdbMatch = analysis.tmdb_matches && analysis.tmdb_matches.length > 0 ? analysis.tmdb_matches[0] : null;
+
+        const modal = document.getElementById('analyze-modal');
+        const moveBtn = document.getElementById('move-btn');
+
+        renderAnalysisForm();
+        moveBtn.disabled = false;
+        modal.showModal();
     }
 
     async function analyzeItem(path) {
@@ -402,6 +610,7 @@
     async function moveFile() {
         const moveBtn = document.getElementById('move-btn');
         const type = document.getElementById('media-type').value;
+        const metadata = getFormMetadata();
 
         moveBtn.disabled = true;
         moveBtn.textContent = 'Moving...';
@@ -413,7 +622,7 @@
                 body: JSON.stringify({
                     source_path: currentAnalysis.path,
                     media_type: type,
-                    metadata: getFormMetadata()
+                    metadata
                 })
             });
 
@@ -423,13 +632,112 @@
             }
 
             const result = await response.json();
+
+            // Update the analyzed item with new metadata
+            const analysis = analyzedItems.get(currentAnalysis.path);
+            if (analysis) {
+                analysis.media_type = type;
+                analysis.metadata = metadata;
+                if (selectedTmdbMatch) {
+                    analysis.tmdb_matches = [selectedTmdbMatch, ...(analysis.tmdb_matches || []).filter(m => m !== selectedTmdbMatch)];
+                }
+            }
+
             showToast(`Moved ${result.files_moved.length} file(s) to library`, 'success');
             closeModal();
+
+            // Remove from analyzed items and refresh
+            analyzedItems.delete(currentAnalysis.path);
+            selectedItems.delete(currentAnalysis.path);
             refreshFileList();
         } catch (error) {
             showToast(error.message, 'error');
             moveBtn.disabled = false;
             moveBtn.textContent = 'Move to Library';
+        }
+    }
+
+    async function bulkMove() {
+        if (selectedItems.size === 0) {
+            showToast('No items selected', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('bulk-move-btn');
+        btn.disabled = true;
+        btn.textContent = 'Moving...';
+
+        // Build items array from selected analyzed items
+        const items = [];
+        for (const path of selectedItems) {
+            const analysis = analyzedItems.get(path);
+            if (!analysis) continue;
+
+            // Get the first TMDB match or use parsed metadata
+            const tmdbMatch = analysis.tmdb_matches && analysis.tmdb_matches.length > 0 ? analysis.tmdb_matches[0] : null;
+            const meta = analysis.metadata || {};
+
+            let metadata = {};
+            if (analysis.media_type === 'movie') {
+                metadata = {
+                    title: tmdbMatch?.title || meta.title || analysis.name,
+                    year: tmdbMatch?.year || meta.year || null
+                };
+            } else if (analysis.media_type === 'tv') {
+                metadata = {
+                    title: tmdbMatch?.title || meta.title || analysis.name,
+                    season: meta.season || null,
+                    episode: meta.episode || null
+                };
+            } else if (analysis.media_type === 'music') {
+                metadata = {
+                    artist: meta.artist || null,
+                    album: meta.album || null
+                };
+            }
+
+            items.push({
+                source_path: path,
+                media_type: analysis.media_type,
+                metadata
+            });
+        }
+
+        if (items.length === 0) {
+            showToast('No valid items to move', 'error');
+            btn.disabled = false;
+            btn.textContent = 'Move Selected';
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/organize/move-bulk', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Bulk move failed');
+            }
+
+            const result = await response.json();
+
+            if (result.error_count > 0) {
+                showToast(`Moved ${result.success_count} of ${result.total} items (${result.error_count} failed)`, 'warning');
+            } else {
+                showToast(`Successfully moved ${result.success_count} items`, 'success');
+            }
+
+            // Refresh the list
+            refreshFileList();
+
+        } catch (error) {
+            showToast(error.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Move Selected';
         }
     }
 

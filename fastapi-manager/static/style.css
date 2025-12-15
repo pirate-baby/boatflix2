@@ -679,6 +679,227 @@ button.small,
 }
 
 /* ============================================================================
+   Bulk Index View
+   ============================================================================ */
+
+.bulk-item {
+    background-color: var(--mm-surface);
+    border: 1px solid var(--mm-border);
+    border-radius: 0.5rem;
+    margin-bottom: 0.75rem;
+    overflow: hidden;
+}
+
+.bulk-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+}
+
+.bulk-item-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.bulk-item-info .file-icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+}
+
+.bulk-item-name {
+    flex: 1;
+    min-width: 0;
+}
+
+.bulk-item-name strong {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.9rem;
+}
+
+.bulk-item-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+    font-size: 0.75rem;
+}
+
+.bulk-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.bulk-item-analysis {
+    border-top: 1px solid var(--mm-border);
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+.inline-analysis {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 1rem;
+    gap: 1rem;
+}
+
+.inline-analysis-main {
+    display: flex;
+    gap: 1rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.inline-poster {
+    width: 60px;
+    height: 90px;
+    object-fit: cover;
+    border-radius: 0.375rem;
+    flex-shrink: 0;
+}
+
+.inline-poster-placeholder {
+    width: 60px;
+    height: 90px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--mm-border);
+    border-radius: 0.375rem;
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.inline-analysis-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.inline-analysis-header {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+}
+
+.inline-title {
+    margin: 0 0 0.25rem 0;
+    font-size: 1rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.inline-meta {
+    margin: 0 0 0.5rem 0;
+    font-size: 0.8rem;
+    color: var(--mm-muted);
+}
+
+.inline-destination {
+    margin: 0;
+    font-size: 0.75rem;
+}
+
+.inline-destination .destination-label {
+    color: var(--mm-muted);
+    margin-right: 0.5rem;
+}
+
+.inline-destination code {
+    color: var(--mm-success);
+    font-size: 0.75rem;
+    word-break: break-all;
+}
+
+.inline-analysis-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+/* Bulk checkbox styling */
+.bulk-checkbox-label {
+    display: flex;
+    align-items: center;
+    margin: 0;
+    padding: 0;
+}
+
+.bulk-checkbox-label input[type="checkbox"] {
+    margin: 0;
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+.bulk-checkbox {
+    margin: 0;
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+/* Analyzing spinner */
+.analyzing-spinner {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+}
+
+/* Bulk Actions Footer */
+#bulk-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    background-color: var(--mm-surface);
+    border-top: 1px solid var(--mm-border);
+    margin-top: 1rem;
+    border-radius: 0.5rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.bulk-actions-left {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.bulk-actions-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.select-all-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    margin: 0;
+    font-size: 0.875rem;
+}
+
+.select-all-label input[type="checkbox"] {
+    margin: 0;
+}
+
+#bulk-count {
+    color: var(--mm-muted);
+    font-size: 0.875rem;
+}
+
+/* ============================================================================
    Dialog/Modal improvements
    ============================================================================ */
 
@@ -696,4 +917,53 @@ dialog footer {
     display: flex;
     justify-content: flex-end;
     gap: 0.5rem;
+}
+
+/* ============================================================================
+   Responsive - Bulk Index
+   ============================================================================ */
+
+@media (max-width: 768px) {
+    .bulk-item-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+
+    .bulk-item-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .inline-analysis {
+        flex-direction: column;
+    }
+
+    .inline-analysis-main {
+        flex-direction: column;
+    }
+
+    .inline-poster,
+    .inline-poster-placeholder {
+        width: 100%;
+        height: auto;
+        aspect-ratio: 2/3;
+        max-width: 100px;
+    }
+
+    .inline-analysis-actions {
+        width: 100%;
+        flex-direction: row;
+        justify-content: flex-end;
+    }
+
+    #bulk-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .bulk-actions-left,
+    .bulk-actions-right {
+        justify-content: space-between;
+    }
 }
