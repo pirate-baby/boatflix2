@@ -142,7 +142,31 @@ def resolve_conflict(dest_path: Path) -> Path:
         counter += 1
 
 
-def _is_companion_file(file_path: Path, all_items: list[Path], max_size_mb: float = 5.0) -> bool:
+def _has_matching_folder(file_stem: str, all_items: list[Path]) -> bool:
+    """Check if a file stem matches or significantly overlaps with any folder name."""
+    MIN_NAME_LENGTH = 5
+    OVERLAP_THRESHOLD = 0.8
+
+    for item in all_items:
+        if not item.is_dir():
+            continue
+
+        folder_name = item.name.lower()
+
+        if file_stem == folder_name:
+            return True
+
+        if file_stem.startswith(folder_name) or folder_name.startswith(file_stem):
+            min_len = min(len(file_stem), len(folder_name))
+            if min_len > MIN_NAME_LENGTH:
+                common_prefix_len = len(os.path.commonprefix([file_stem, folder_name]))
+                if common_prefix_len >= min_len * OVERLAP_THRESHOLD:
+                    return True
+
+    return False
+
+
+def is_companion_file(file_path: Path, all_items: list[Path], max_size_mb: float = 5.0) -> bool:
     """Check if a file is a small companion file that should be hidden.
 
     Companion files are small files (< max_size_mb) that share a name stem with
@@ -160,7 +184,6 @@ def _is_companion_file(file_path: Path, all_items: list[Path], max_size_mb: floa
     if not file_path.is_file():
         return False
 
-    # Check if file is small enough to be a companion
     try:
         size_bytes = file_path.stat().st_size
         max_size_bytes = max_size_mb * 1024 * 1024
@@ -169,26 +192,8 @@ def _is_companion_file(file_path: Path, all_items: list[Path], max_size_mb: floa
     except OSError:
         return False
 
-    # Get the file's stem (name without extension)
     file_stem = file_path.stem.lower()
-
-    # Check if there's a folder with a matching or similar name
-    for item in all_items:
-        if item.is_dir() and item != file_path:
-            folder_name = item.name.lower()
-            # Exact stem match (e.g., "Movie.Name.2024" folder and "Movie.Name.2024.nfo" file)
-            if file_stem == folder_name:
-                return True
-            # File stem starts with folder name (handles cases like "Movie.Name.txt" with "Movie.Name.2024" folder)
-            if file_stem.startswith(folder_name) or folder_name.startswith(file_stem):
-                # Only if they share significant overlap (at least 80% of shorter name)
-                min_len = min(len(file_stem), len(folder_name))
-                if min_len > 5:  # Avoid matching very short names
-                    common_prefix_len = len(os.path.commonprefix([file_stem, folder_name]))
-                    if common_prefix_len >= min_len * 0.8:
-                        return True
-
-    return False
+    return _has_matching_folder(file_stem, all_items)
 
 
 async def scan_downloads(downloads_path: str | None = None) -> list[dict]:
@@ -205,16 +210,13 @@ async def scan_downloads(downloads_path: str | None = None) -> list[dict]:
     if not path.exists():
         return []
 
-    # Get all non-hidden items first to check for companion files
     all_items = [item for item in path.iterdir() if not item.name.startswith('.')]
 
     items = []
     for item in sorted(all_items):
-        # Skip companion files (small files that share names with folders)
-        if _is_companion_file(item, all_items):
+        if is_companion_file(item, all_items):
             continue
 
-        # Determine basic type from extension or directory content
         item_type = 'unknown'
         size = 0
 

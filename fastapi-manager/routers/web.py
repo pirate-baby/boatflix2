@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from config import settings
+from services.organizer import is_companion_file
 
 router = APIRouter()
 
@@ -63,16 +64,13 @@ async def sync_page(request: Request):
 @router.get("/api/pending-count")
 async def get_pending_count():
     """Get count of items pending organization in Downloads folder."""
-    from services.organizer import _is_companion_file
-
     downloads_path = Path(f"{settings.MEDIA_BASE}/Downloads")
 
     if not downloads_path.exists():
         return JSONResponse({"count": 0, "html": "<p class='muted'>Downloads folder not found</p>"})
 
-    # Get all non-hidden items and filter out companion files
     all_items = [item for item in downloads_path.iterdir() if not item.name.startswith(".")]
-    visible_items = [item for item in all_items if not _is_companion_file(item, all_items)]
+    visible_items = [item for item in all_items if not is_companion_file(item, all_items)]
     count = len(visible_items)
 
     if count == 0:
@@ -110,20 +108,16 @@ async def get_sync_summary():
 @router.get("/api/files")
 async def list_files():
     """List files in the Downloads folder for the file browser."""
-    from services.organizer import _is_companion_file
-
     downloads_path = Path(f"{settings.MEDIA_BASE}/Downloads")
 
     if not downloads_path.exists():
         return JSONResponse({"items": [], "error": "Downloads folder not found"})
 
-    # Get all non-hidden items first to check for companion files
     all_items = [item for item in downloads_path.iterdir() if not item.name.startswith(".")]
 
     items = []
     for item in sorted(all_items, key=lambda x: (not x.is_dir(), x.name.lower())):
-        # Skip companion files (small files that share names with folders)
-        if _is_companion_file(item, all_items):
+        if is_companion_file(item, all_items):
             continue
 
         file_type = _detect_file_type(item)
