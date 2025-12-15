@@ -117,6 +117,7 @@ async def detect_scenes(
     video_path: Path,
     threshold: float = 27.0,
     min_scene_len: float = 0.5,
+    algorithm: str = "content",
 ) -> dict:
     """Detect scene boundaries in a video file.
 
@@ -124,6 +125,7 @@ async def detect_scenes(
         video_path: Path to the video file
         threshold: Content detector threshold (default 27.0)
         min_scene_len: Minimum scene length in seconds (default 0.5)
+        algorithm: Detection algorithm - 'content', 'adaptive', 'threshold', or 'hash'
 
     Returns:
         Dict with success status, scene count, and scene list
@@ -136,19 +138,24 @@ async def detect_scenes(
             "scenes_count": 0,
         }
 
-    _append_log(f"Detecting scenes in: {video_path.name}")
+    _append_log(f"Detecting scenes in: {video_path.name} (algorithm={algorithm}, threshold={threshold})")
+
+    # Build detection command based on algorithm
+    if algorithm == "adaptive":
+        detect_cmd = ["detect-adaptive", "-t", str(threshold), "--min-scene-len", f"{min_scene_len}s"]
+    elif algorithm == "threshold":
+        detect_cmd = ["detect-threshold", "-t", str(threshold), "--min-scene-len", f"{min_scene_len}s"]
+    elif algorithm == "hash":
+        detect_cmd = ["detect-hash", "-t", str(threshold), "--min-scene-len", f"{min_scene_len}s"]
+    else:  # default to content
+        detect_cmd = ["detect-content", "-t", str(threshold), "--min-scene-len", f"{min_scene_len}s"]
 
     cmd = [
         "scenedetect",
         "-i", str(video_path),
         "-o", str(video_path.parent),
         "-b", "pyav",
-        "detect-content",
-        "-t", str(threshold),
-        "--min-scene-len", f"{min_scene_len}s",
-        "list-scenes",
-        "-q",
-    ]
+    ] + detect_cmd + ["list-scenes"]
 
     started_at = datetime.now(timezone.utc)
 
@@ -211,8 +218,22 @@ def _parse_scene_list(output: str) -> list[dict]:
     lines = output.strip().split("\n")
 
     for line in lines:
+        # Try format: "Scene  1: 00:00:00.000 - 00:01:23.456"
         match = re.search(
             r"Scene\s+(\d+):\s+(\d+:\d+:\d+\.\d+)\s+-\s+(\d+:\d+:\d+\.\d+)",
+            line
+        )
+        if match:
+            scenes.append({
+                "scene_number": int(match.group(1)),
+                "start_time": match.group(2),
+                "end_time": match.group(3),
+            })
+            continue
+
+        # Try format from table: "| 1 | 00:00:00.000 | 1 | 00:01:23.456 |"
+        match = re.search(
+            r"\|\s*(\d+)\s*\|\s*(\d+:\d+:\d+\.\d+)\s*\|\s*\d+\s*\|\s*(\d+:\d+:\d+\.\d+)",
             line
         )
         if match:
@@ -229,6 +250,7 @@ async def split_video(
     video_path: Path,
     threshold: float = 27.0,
     min_scene_len: float = 0.5,
+    algorithm: str = "content",
 ) -> dict:
     """Split a video into scenes using PySceneDetect.
 
@@ -236,6 +258,7 @@ async def split_video(
         video_path: Path to the video file
         threshold: Content detector threshold (default 27.0)
         min_scene_len: Minimum scene length in seconds (default 0.5)
+        algorithm: Detection algorithm - 'content', 'adaptive', 'threshold', or 'hash'
 
     Returns:
         Dict with success status and split results
@@ -247,19 +270,27 @@ async def split_video(
             "output_files": [],
         }
 
-    _append_log(f"Splitting video: {video_path.name}")
+    _append_log(f"Splitting video: {video_path.name} (algorithm={algorithm}, threshold={threshold})")
 
     output_dir = video_path.parent
     base_name = video_path.stem
+
+    # Build detection command based on algorithm
+    if algorithm == "adaptive":
+        detect_cmd = ["detect-adaptive", "-t", str(threshold), "--min-scene-len", f"{min_scene_len}s"]
+    elif algorithm == "threshold":
+        detect_cmd = ["detect-threshold", "-t", str(threshold), "--min-scene-len", f"{min_scene_len}s"]
+    elif algorithm == "hash":
+        detect_cmd = ["detect-hash", "-t", str(threshold), "--min-scene-len", f"{min_scene_len}s"]
+    else:  # default to content
+        detect_cmd = ["detect-content", "-t", str(threshold), "--min-scene-len", f"{min_scene_len}s"]
 
     cmd = [
         "scenedetect",
         "-i", str(video_path),
         "-o", str(output_dir),
         "-b", "pyav",
-        "detect-content",
-        "-t", str(threshold),
-        "--min-scene-len", f"{min_scene_len}s",
+    ] + detect_cmd + [
         "split-video",
         "-f", f"{base_name}-$SCENE_NUMBER",
         "-a", "-c",
@@ -349,6 +380,7 @@ async def process_directory(
     directory: Optional[Path] = None,
     threshold: float = 27.0,
     min_scene_len: float = 0.5,
+    algorithm: str = "content",
 ) -> dict:
     """Process all unprocessed videos in a directory.
 
@@ -356,6 +388,7 @@ async def process_directory(
         directory: Directory to process (defaults to Commercials directory)
         threshold: Content detector threshold
         min_scene_len: Minimum scene length in seconds
+        algorithm: Detection algorithm - 'content', 'adaptive', 'threshold', or 'hash'
 
     Returns:
         Dict with processing results
@@ -363,7 +396,7 @@ async def process_directory(
     if directory is None:
         directory = get_commercials_directory()
 
-    _append_log(f"Processing directory: {directory}")
+    _append_log(f"Processing directory: {directory} (algorithm={algorithm})")
 
     videos = find_videos_to_process(directory)
 
@@ -382,7 +415,7 @@ async def process_directory(
     processed_count = 0
 
     for video_path in videos:
-        result = await split_video(video_path, threshold, min_scene_len)
+        result = await split_video(video_path, threshold, min_scene_len, algorithm)
         results.append({
             "file": str(video_path),
             "result": result,

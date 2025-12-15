@@ -20,6 +20,7 @@ class ProcessVideoRequest(BaseModel):
     video_path: str
     threshold: float = 27.0
     min_scene_len: float = 0.5
+    algorithm: str = "content"  # content, adaptive, threshold, hash
 
 
 class ProcessDirectoryRequest(BaseModel):
@@ -28,6 +29,7 @@ class ProcessDirectoryRequest(BaseModel):
     directory: Optional[str] = None
     threshold: float = 27.0
     min_scene_len: float = 0.5
+    algorithm: str = "content"  # content, adaptive, threshold, hash
 
 
 @router.post("/split")
@@ -62,6 +64,7 @@ async def split_video(
                 video_path,
                 threshold=request.threshold,
                 min_scene_len=request.min_scene_len,
+                algorithm=request.algorithm,
             )
         finally:
             _process_in_progress = False
@@ -74,6 +77,7 @@ async def split_video(
         "video_path": str(video_path),
         "threshold": request.threshold,
         "min_scene_len": request.min_scene_len,
+        "algorithm": request.algorithm,
     }
 
 
@@ -97,6 +101,7 @@ async def detect_scenes(request: ProcessVideoRequest):
         video_path,
         threshold=request.threshold,
         min_scene_len=request.min_scene_len,
+        algorithm=request.algorithm,
     )
 
     if not result["success"]:
@@ -141,6 +146,7 @@ async def process_directory(
                 directory,
                 threshold=request.threshold,
                 min_scene_len=request.min_scene_len,
+                algorithm=request.algorithm,
             )
         finally:
             _process_in_progress = False
@@ -155,6 +161,7 @@ async def process_directory(
         "directory": target_dir,
         "threshold": request.threshold,
         "min_scene_len": request.min_scene_len,
+        "algorithm": request.algorithm,
     }
 
 
