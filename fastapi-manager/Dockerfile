@@ -22,9 +22,11 @@ RUN curl -O https://downloads.rclone.org/rclone-current-linux-amd64.zip \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 COPY requirements.txt .
-RUN uv pip install --system --no-cache -r requirements.txt
+RUN uv venv /app/.venv && uv pip install --no-cache -r requirements.txt
 
 COPY . .
+
+ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 8000
 
