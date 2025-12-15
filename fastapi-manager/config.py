@@ -14,5 +14,11 @@ class Settings:
     RCLONE_REMOTE: str = os.getenv("RCLONE_REMOTE", "")
     RCLONE_BUCKET: str = os.getenv("RCLONE_BUCKET", "")
 
+    # PySceneDetect settings for commercial splitting
+    SCENE_DETECT_ENABLED: bool = os.getenv("SCENE_DETECT_ENABLED", "false").lower() == "true"
+    SCENE_DETECT_CRON: str = os.getenv("SCENE_DETECT_CRON", "0 3 * * *")
+    SCENE_DETECT_THRESHOLD: float = float(os.getenv("SCENE_DETECT_THRESHOLD", "27.0"))
+    SCENE_DETECT_MIN_SCENE_LEN: float = float(os.getenv("SCENE_DETECT_MIN_SCENE_LEN", "0.5"))
+
 
 settings = Settings()

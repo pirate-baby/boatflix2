@@ -11,8 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from config import settings
-from routers import download, sync, organize, web
-from services import rclone
+from routers import download, sync, organize, web, process
+from services import rclone, pyscenedetect
 from services.download_queue import download_queue
 
 # Configure logging
@@ -63,6 +63,25 @@ async def scheduled_sync():
         logger.exception(f"Scheduled sync error: {e}")
 
 
+async def scheduled_scene_detect():
+    """Run scheduled scene detection job for commercial splitting."""
+    logger.info("Starting scheduled scene detection job")
+    try:
+        result = await pyscenedetect.process_directory(
+            threshold=settings.SCENE_DETECT_THRESHOLD,
+            min_scene_len=settings.SCENE_DETECT_MIN_SCENE_LEN,
+        )
+        if result["success"]:
+            logger.info(
+                f"Scheduled scene detection completed: "
+                f"{result['videos_processed']}/{result['videos_found']} videos processed"
+            )
+        else:
+            logger.error(f"Scheduled scene detection failed: {result.get('error', 'Unknown error')}")
+    except Exception as e:
+        logger.exception(f"Scheduled scene detection error: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown tasks."""
@@ -81,15 +100,36 @@ async def lifespan(app: FastAPI):
                 name="rclone bidirectional sync",
                 replace_existing=True,
             )
-            scheduler.start()
-            logger.info(f"Sync scheduler started with cron: {settings.SYNC_CRON}")
+            logger.info(f"Sync scheduler configured with cron: {settings.SYNC_CRON}")
         except Exception as e:
-            logger.error(f"Failed to start sync scheduler: {e}")
+            logger.error(f"Failed to configure sync scheduler: {e}")
     else:
         if not settings.SYNC_ENABLED:
             logger.info("Sync scheduler disabled (SYNC_ENABLED=false)")
         else:
             logger.warning("Sync scheduler not started: RCLONE_REMOTE and RCLONE_BUCKET must be configured")
+
+    # Start scene detection scheduler if configured
+    if settings.SCENE_DETECT_ENABLED:
+        try:
+            cron_kwargs = parse_cron_expression(settings.SCENE_DETECT_CRON)
+            scheduler.add_job(
+                scheduled_scene_detect,
+                CronTrigger(**cron_kwargs),
+                id="scene_detect",
+                name="PySceneDetect commercial splitting",
+                replace_existing=True,
+            )
+            logger.info(f"Scene detection scheduler configured with cron: {settings.SCENE_DETECT_CRON}")
+        except Exception as e:
+            logger.error(f"Failed to configure scene detection scheduler: {e}")
+    else:
+        logger.info("Scene detection scheduler disabled (SCENE_DETECT_ENABLED=false)")
+
+    # Start the scheduler if any jobs were added
+    if scheduler.get_jobs():
+        scheduler.start()
+        logger.info("Scheduler started")
 
     yield
 
@@ -129,6 +169,7 @@ templates = Jinja2Templates(directory=BASE_DIR / "templates")
 app.include_router(download.router, prefix="/api/download", tags=["download"])
 app.include_router(sync.router, prefix="/api/sync", tags=["sync"])
 app.include_router(organize.router, prefix="/api/organize", tags=["organize"])
+app.include_router(process.router, prefix="/api/process", tags=["process"])
 app.include_router(web.router, prefix="/manager", tags=["web"])
 
 
