@@ -293,7 +293,7 @@ async def split_video(
     ] + detect_cmd + [
         "split-video",
         "-f", f"{base_name}-$SCENE_NUMBER",
-        "-a", "-c",
+        "-c",  # copy codec (use ffmpeg, not mkvmerge)
     ]
 
     started_at = datetime.now(timezone.utc)
@@ -366,7 +366,8 @@ async def split_video(
 
 def _find_split_files(output_dir: Path, base_name: str) -> list[Path]:
     """Find split output files matching the base name pattern."""
-    pattern = re.compile(rf"^{re.escape(base_name)}-\d{{3,}}\.[^.]+$")
+    # Match base_name-NNN.ext where NNN is 1 or more digits
+    pattern = re.compile(rf"^{re.escape(base_name)}-\d+\.[^.]+$")
     files = []
 
     for file_path in output_dir.iterdir():
