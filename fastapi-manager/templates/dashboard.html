@@ -84,6 +84,24 @@
     </article>
 </div>
 
+<!-- Transcode Status -->
+<div class="grid">
+    <article>
+        <header>
+            <hgroup>
+                <h3>Transcode</h3>
+                <p>Chromium-compatible video conversion</p>
+            </hgroup>
+        </header>
+        <div id="transcode-status" hx-get="/api/transcode/status" hx-trigger="load, every 10s" hx-swap="innerHTML">
+            <p aria-busy="true">Loading...</p>
+        </div>
+        <footer>
+            <a href="/manager/transcode" role="button" class="outline">Manage Transcoding</a>
+        </footer>
+    </article>
+</div>
+
 <!-- Recent Activity -->
 <article>
     <header>
@@ -180,6 +198,8 @@
             formatDownloadStatus(evt.detail.target, evt.detail.xhr.response);
         } else if (evt.detail.target.id === 'recent-activity') {
             formatRecentActivity(evt.detail.target, evt.detail.xhr.response);
+        } else if (evt.detail.target.id === 'transcode-status') {
+            formatTranscodeStatus(evt.detail.target, evt.detail.xhr.response);
         }
     });
 
@@ -245,6 +265,36 @@
             target.innerHTML = html;
         } catch (e) {
             target.innerHTML = '<p class="muted">Unable to load activity</p>';
+        }
+    }
+
+    function formatTranscodeStatus(target, response) {
+        try {
+            const data = JSON.parse(response);
+            let html = '';
+
+            if (data.in_progress) {
+                html = `
+                    <p><span class="badge badge-primary">Transcoding...</span></p>
+                    <p><small>${data.total_processed || 0} videos processed</small></p>
+                `;
+            } else if (data.status === 'never_run') {
+                html = '<p class="muted">Never run</p>';
+            } else if (data.status === 'success') {
+                html = `
+                    <p><span class="badge badge-success">Ready</span></p>
+                    <p><small>${data.successful_processed || 0} transcoded, ${data.total_space_saved_mb || 0} MB saved</small></p>
+                `;
+            } else {
+                html = `
+                    <p><span class="badge badge-error">Last run failed</span></p>
+                    <p><small>${data.failed_processed || 0} failures</small></p>
+                `;
+            }
+
+            target.innerHTML = html;
+        } catch (e) {
+            target.innerHTML = '<p class="muted">Unable to load status</p>';
         }
     }
 

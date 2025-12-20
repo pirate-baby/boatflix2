@@ -59,6 +59,18 @@ async def sync_page(request: Request):
     )
 
 
+@router.get("/transcode", response_class=HTMLResponse)
+async def transcode_page(request: Request):
+    """Render the transcode page."""
+    return templates.TemplateResponse(
+        "transcode.html",
+        {
+            "request": request,
+            "media_base": settings.MEDIA_BASE,
+        },
+    )
+
+
 # API endpoints for the web UI
 
 @router.get("/api/pending-count")

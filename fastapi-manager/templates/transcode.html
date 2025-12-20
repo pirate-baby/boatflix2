@@ -1,0 +1,468 @@
+{% extends "base.html" %}
+
+{% block title %}Transcode - Media Manager{% endblock %}
+{% block nav_transcode %}active{% endblock %}
+
+{% block content %}
+<hgroup>
+    <h1>Transcode</h1>
+    <p>Convert videos to Chromium-compatible format (H.264/AAC in MP4)</p>
+</hgroup>
+
+<!-- Status Card -->
+<article>
+    <header>
+        <div class="grid">
+            <hgroup>
+                <h2>Status</h2>
+                <p id="status-text">Checking...</p>
+            </hgroup>
+            <div style="text-align: right;">
+                <button class="outline" onclick="refreshStatus()">Refresh</button>
+            </div>
+        </div>
+    </header>
+    <div id="transcode-status">
+        <p aria-busy="true">Loading status...</p>
+    </div>
+</article>
+
+<!-- Config Info -->
+<details>
+    <summary>Current Settings</summary>
+    <div id="config-info">
+        <p aria-busy="true">Loading configuration...</p>
+    </div>
+</details>
+
+<!-- Scan Section -->
+<article>
+    <header>
+        <h2>Scan Library</h2>
+    </header>
+    <p>Scan your library to check which videos need transcoding.</p>
+    <div class="grid">
+        <div>
+            <label for="scan-directory">Directory</label>
+            <input type="text" id="scan-directory" value="{{ media_base }}" placeholder="/mnt/media">
+        </div>
+        <div>
+            <label for="scan-recursive">
+                <input type="checkbox" id="scan-recursive" checked>
+                Include subdirectories
+            </label>
+        </div>
+    </div>
+    <button onclick="scanLibrary()" id="scan-btn">Scan Library</button>
+    <div id="scan-results" style="margin-top: 1rem;"></div>
+</article>
+
+<!-- Test Single Video -->
+<article>
+    <header>
+        <h2>Test Single Video</h2>
+    </header>
+    <p>Probe a single video to check compatibility, or transcode it.</p>
+    <div class="grid">
+        <div>
+            <label for="test-video-path">Video Path</label>
+            <input type="text" id="test-video-path" placeholder="/mnt/media/Movies/Movie/movie.mkv">
+        </div>
+    </div>
+    <div class="grid">
+        <button class="outline" onclick="probeVideo()" id="probe-btn">Probe Video</button>
+        <button onclick="transcodeVideo()" id="transcode-single-btn">Transcode Video</button>
+    </div>
+    <div id="probe-results" style="margin-top: 1rem;"></div>
+</article>
+
+<!-- Transcode Directory -->
+<article>
+    <header>
+        <h2>Transcode Library</h2>
+    </header>
+    <p>Transcode all incompatible videos in your library. Originals are moved to <code>.originals/</code> folder.</p>
+    <div class="grid">
+        <div>
+            <label for="transcode-directory">Directory</label>
+            <input type="text" id="transcode-directory" value="{{ media_base }}" placeholder="/mnt/media">
+        </div>
+        <div>
+            <label for="transcode-recursive">
+                <input type="checkbox" id="transcode-recursive" checked>
+                Include subdirectories
+            </label>
+        </div>
+    </div>
+    <button onclick="transcodeDirectory()" id="transcode-dir-btn" class="contrast">Start Transcoding</button>
+</article>
+
+<!-- Logs -->
+<article>
+    <header>
+        <div class="grid">
+            <h2>Logs</h2>
+            <div style="text-align: right;">
+                <button class="outline secondary" onclick="refreshLogs()">Refresh Logs</button>
+            </div>
+        </div>
+    </header>
+    <pre id="logs-container" style="max-height: 300px; overflow-y: auto; font-size: 0.8rem;"><code>Loading logs...</code></pre>
+</article>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Load status and config on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        refreshStatus();
+        loadConfig();
+        refreshLogs();
+        // Auto-refresh status every 5 seconds
+        setInterval(refreshStatus, 5000);
+    });
+
+    async function refreshStatus() {
+        try {
+            const response = await fetch('/api/transcode/status');
+            const data = await response.json();
+
+            const statusText = document.getElementById('status-text');
+            const statusDiv = document.getElementById('transcode-status');
+
+            if (data.in_progress) {
+                statusText.textContent = 'Transcoding in progress...';
+                statusText.style.color = 'var(--pico-primary)';
+            } else if (data.status === 'never_run') {
+                statusText.textContent = 'Never run';
+                statusText.style.color = 'var(--pico-muted-color)';
+            } else if (data.status === 'success') {
+                statusText.textContent = 'Last run successful';
+                statusText.style.color = 'var(--pico-ins-color)';
+            } else {
+                statusText.textContent = 'Last run failed';
+                statusText.style.color = 'var(--pico-del-color)';
+            }
+
+            statusDiv.innerHTML = `
+                <div class="grid">
+                    <div>
+                        <strong>Total Processed:</strong> ${data.total_processed || 0}
+                    </div>
+                    <div>
+                        <strong>Successful:</strong> ${data.successful_processed || 0}
+                    </div>
+                    <div>
+                        <strong>Failed:</strong> ${data.failed_processed || 0}
+                    </div>
+                    <div>
+                        <strong>Space Saved:</strong> ${data.total_space_saved_mb || 0} MB
+                    </div>
+                </div>
+                ${data.last_file ? `<p style="margin-top: 0.5rem;"><small>Last file: ${escapeHtml(data.last_file)}</small></p>` : ''}
+            `;
+        } catch (error) {
+            document.getElementById('transcode-status').innerHTML = `<p class="error-text">Error loading status: ${escapeHtml(error.message)}</p>`;
+        }
+    }
+
+    async function loadConfig() {
+        try {
+            const response = await fetch('/api/transcode/config');
+            const data = await response.json();
+
+            document.getElementById('config-info').innerHTML = `
+                <div class="grid">
+                    <div>
+                        <strong>FFmpeg:</strong> ${data.ffmpeg_installed ? 'Installed' : 'Not found'}
+                    </div>
+                    <div>
+                        <strong>FFprobe:</strong> ${data.ffprobe_installed ? 'Installed' : 'Not found'}
+                    </div>
+                    <div>
+                        <strong>Hardware Accel:</strong> ${data.hardware_acceleration?.length ? data.hardware_acceleration.join(', ') : 'None'}
+                    </div>
+                </div>
+                <div class="grid" style="margin-top: 0.5rem;">
+                    <div>
+                        <strong>CRF:</strong> ${data.transcode_crf}
+                    </div>
+                    <div>
+                        <strong>Preset:</strong> ${data.transcode_preset}
+                    </div>
+                    <div>
+                        <strong>Audio Bitrate:</strong> ${data.transcode_audio_bitrate}
+                    </div>
+                    <div>
+                        <strong>Archive Original:</strong> ${data.transcode_archive_original ? 'Yes' : 'No'}
+                    </div>
+                </div>
+            `;
+        } catch (error) {
+            document.getElementById('config-info').innerHTML = `<p class="error-text">Error loading config: ${escapeHtml(error.message)}</p>`;
+        }
+    }
+
+    async function refreshLogs() {
+        try {
+            const response = await fetch('/api/transcode/logs?lines=50');
+            const data = await response.json();
+
+            const logs = data.logs || [];
+            if (logs.length === 0) {
+                document.getElementById('logs-container').innerHTML = '<code>No logs yet</code>';
+            } else {
+                document.getElementById('logs-container').innerHTML = '<code>' + logs.map(l => escapeHtml(l)).join('\n') + '</code>';
+                // Scroll to bottom
+                const container = document.getElementById('logs-container');
+                container.scrollTop = container.scrollHeight;
+            }
+        } catch (error) {
+            document.getElementById('logs-container').innerHTML = '<code>Error loading logs</code>';
+        }
+    }
+
+    async function scanLibrary() {
+        const btn = document.getElementById('scan-btn');
+        const resultsDiv = document.getElementById('scan-results');
+        const directory = document.getElementById('scan-directory').value;
+        const recursive = document.getElementById('scan-recursive').checked;
+
+        btn.disabled = true;
+        btn.setAttribute('aria-busy', 'true');
+        btn.textContent = 'Scanning...';
+        resultsDiv.innerHTML = '<p aria-busy="true">Scanning library...</p>';
+
+        try {
+            const response = await fetch('/api/transcode/scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ directory, recursive })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Scan failed');
+            }
+
+            const data = await response.json();
+
+            resultsDiv.innerHTML = `
+                <div class="grid">
+                    <article>
+                        <header style="background: var(--pico-ins-color); color: white;">
+                            <strong>${data.compatible_count}</strong> Compatible
+                        </header>
+                    </article>
+                    <article>
+                        <header style="background: var(--pico-del-color); color: white;">
+                            <strong>${data.needs_transcode_count}</strong> Need Transcode
+                        </header>
+                    </article>
+                    <article>
+                        <header style="background: var(--pico-primary); color: white;">
+                            <strong>${data.needs_remux_count}</strong> Need Remux Only
+                        </header>
+                    </article>
+                </div>
+                ${data.error_count > 0 ? `<p class="error-text">${data.error_count} files had errors</p>` : ''}
+
+                ${data.results.needs_transcode.length > 0 ? `
+                    <details open>
+                        <summary>Videos needing transcode (${data.results.needs_transcode.length})</summary>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>File</th>
+                                    <th>Size</th>
+                                    <th>Codecs</th>
+                                    <th>Reason</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.results.needs_transcode.slice(0, 20).map(v => `
+                                    <tr>
+                                        <td><small>${escapeHtml(v.relative_path)}</small></td>
+                                        <td>${v.size_mb} MB</td>
+                                        <td><code>${v.video_codec}/${v.audio_codec}</code></td>
+                                        <td><small>${escapeHtml(v.reasons.join(', '))}</small></td>
+                                    </tr>
+                                `).join('')}
+                                ${data.results.needs_transcode.length > 20 ? `<tr><td colspan="4">... and ${data.results.needs_transcode.length - 20} more</td></tr>` : ''}
+                            </tbody>
+                        </table>
+                    </details>
+                ` : ''}
+            `;
+
+            showToast(`Scan complete: ${data.needs_transcode_count} videos need transcoding`, 'success');
+        } catch (error) {
+            resultsDiv.innerHTML = `<p class="error-text">Error: ${escapeHtml(error.message)}</p>`;
+            showToast(error.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.removeAttribute('aria-busy');
+            btn.textContent = 'Scan Library';
+        }
+    }
+
+    async function probeVideo() {
+        const btn = document.getElementById('probe-btn');
+        const resultsDiv = document.getElementById('probe-results');
+        const videoPath = document.getElementById('test-video-path').value;
+
+        if (!videoPath) {
+            showToast('Please enter a video path', 'error');
+            return;
+        }
+
+        btn.disabled = true;
+        btn.setAttribute('aria-busy', 'true');
+        resultsDiv.innerHTML = '<p aria-busy="true">Probing video...</p>';
+
+        try {
+            const response = await fetch('/api/transcode/probe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ video_path: videoPath })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Probe failed');
+            }
+
+            const data = await response.json();
+            const probe = data.probe;
+            const compat = data.compatibility;
+
+            resultsDiv.innerHTML = `
+                <article>
+                    <header>
+                        <span class="badge ${compat.compatible ? 'badge-success' : 'badge-error'}">
+                            ${compat.compatible ? 'Compatible' : 'Needs Conversion'}
+                        </span>
+                    </header>
+                    <div class="grid">
+                        <div>
+                            <strong>Video:</strong> ${probe.video_codec || 'N/A'} (${probe.video_width}x${probe.video_height})
+                        </div>
+                        <div>
+                            <strong>Audio:</strong> ${probe.audio_codec || 'N/A'} (${probe.audio_channels}ch)
+                        </div>
+                        <div>
+                            <strong>Container:</strong> ${probe.container || 'N/A'}
+                        </div>
+                        <div>
+                            <strong>Size:</strong> ${Math.round(probe.size_bytes / 1024 / 1024)} MB
+                        </div>
+                    </div>
+                    ${!compat.compatible ? `
+                        <p style="margin-top: 1rem;"><strong>Issues:</strong></p>
+                        <ul>
+                            ${compat.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join('')}
+                        </ul>
+                    ` : ''}
+                </article>
+            `;
+        } catch (error) {
+            resultsDiv.innerHTML = `<p class="error-text">Error: ${escapeHtml(error.message)}</p>`;
+            showToast(error.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.removeAttribute('aria-busy');
+        }
+    }
+
+    async function transcodeVideo() {
+        const btn = document.getElementById('transcode-single-btn');
+        const resultsDiv = document.getElementById('probe-results');
+        const videoPath = document.getElementById('test-video-path').value;
+
+        if (!videoPath) {
+            showToast('Please enter a video path', 'error');
+            return;
+        }
+
+        btn.disabled = true;
+        btn.setAttribute('aria-busy', 'true');
+        btn.textContent = 'Starting...';
+
+        try {
+            const response = await fetch('/api/transcode/video', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ video_path: videoPath })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Transcode failed to start');
+            }
+
+            const data = await response.json();
+
+            resultsDiv.innerHTML = `
+                <article>
+                    <header style="background: var(--pico-primary); color: white;">
+                        Transcoding Started
+                    </header>
+                    <p>The video is being transcoded in the background.</p>
+                    <p><strong>Settings:</strong> CRF ${data.crf}, Preset ${data.preset}</p>
+                    <p>Check the logs below for progress.</p>
+                </article>
+            `;
+
+            showToast('Transcode started', 'success');
+            refreshStatus();
+            refreshLogs();
+        } catch (error) {
+            resultsDiv.innerHTML = `<p class="error-text">Error: ${escapeHtml(error.message)}</p>`;
+            showToast(error.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.removeAttribute('aria-busy');
+            btn.textContent = 'Transcode Video';
+        }
+    }
+
+    async function transcodeDirectory() {
+        const btn = document.getElementById('transcode-dir-btn');
+        const directory = document.getElementById('transcode-directory').value;
+        const recursive = document.getElementById('transcode-recursive').checked;
+
+        if (!confirm(`This will transcode all incompatible videos in:\n${directory}\n\nOriginals will be moved to .originals/ folder.\n\nContinue?`)) {
+            return;
+        }
+
+        btn.disabled = true;
+        btn.setAttribute('aria-busy', 'true');
+        btn.textContent = 'Starting...';
+
+        try {
+            const response = await fetch('/api/transcode/directory', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ directory, recursive })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Transcode failed to start');
+            }
+
+            const data = await response.json();
+
+            showToast('Library transcoding started! Check status and logs for progress.', 'success');
+            refreshStatus();
+            refreshLogs();
+        } catch (error) {
+            showToast(error.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.removeAttribute('aria-busy');
+            btn.textContent = 'Start Transcoding';
+        }
+    }
+</script>
+{% endblock %}
