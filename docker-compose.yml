@@ -8,6 +8,7 @@ services:
       - TZ=${TZ}
     volumes:
       - ./configs/jellyfin:/config
+      - ./configs/jellyfin/cache:/cache
       - ${MEDIA_PATH}:/mnt/media
     ports:
       - "8096:8096"
