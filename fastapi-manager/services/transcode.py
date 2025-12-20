@@ -407,6 +407,7 @@ async def transcode_video(
 
     # Output options - MP4 has limited subtitle support, so we skip them
     cmd.extend([
+        "-f", "mp4",  # Explicitly set output format (temp file doesn't have .mp4 extension)
         "-movflags", "+faststart",  # Enable streaming
         "-map", "0:v:0",  # First video stream
         "-map", "0:a:0?",  # First audio stream (optional)
