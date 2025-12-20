@@ -239,7 +239,7 @@
         statusEl.innerHTML = `
             <label class="bulk-checkbox-label">
                 <input type="checkbox" class="bulk-checkbox" data-path="${escapeHtml(analysis.path)}"
-                       onchange="toggleItemSelection('${escapeHtml(analysis.path)}', this.checked)" checked>
+                       onchange="toggleItemSelection(this.dataset.path, this.checked)" checked>
             </label>
         `;
 
@@ -277,7 +277,7 @@
                     </div>
                 </div>
                 <div class="inline-analysis-actions">
-                    <button class="outline small" onclick="editItem('${escapeHtml(analysis.path)}')">Edit</button>
+                    <button class="outline small" data-path="${escapeHtml(analysis.path)}" onclick="editItem(this.dataset.path)">Edit</button>
                 </div>
             </div>
         `;
