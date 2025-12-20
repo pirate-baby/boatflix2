@@ -322,13 +322,21 @@ async def transcode_video(
     if output_path is None:
         if archive_original:
             # When archiving, transcoded file takes the original's place (with .mp4 extension)
-            output_path = video_path.parent / f"{video_path.stem}.mp4"
+            # But if input is already .mp4, we need a temp name first
+            if video_path.suffix.lower() == ".mp4":
+                output_path = video_path.parent / f"{video_path.stem}_transcoded.mp4"
+            else:
+                output_path = video_path.parent / f"{video_path.stem}.mp4"
         else:
             # Not archiving - add _chromium suffix to avoid overwriting
             if video_path.suffix.lower() == ".mp4":
                 output_path = video_path.parent / f"{video_path.stem}_chromium.mp4"
             else:
                 output_path = video_path.parent / f"{video_path.stem}.mp4"
+
+    # Make sure output path is different from input
+    if output_path == video_path:
+        output_path = video_path.parent / f"{video_path.stem}_transcoded.mp4"
 
     temp_output = output_path.parent / f".{output_path.name}.temp"
 
@@ -397,14 +405,15 @@ async def transcode_video(
     else:
         cmd.extend(["-c:a", "copy"])
 
-    # Output options
+    # Output options - MP4 has limited subtitle support, so we skip them
     cmd.extend([
         "-movflags", "+faststart",  # Enable streaming
         "-map", "0:v:0",  # First video stream
         "-map", "0:a:0?",  # First audio stream (optional)
-        "-map", "0:s?",  # Subtitles (optional, will be in separate tracks)
         str(temp_output),
     ])
+
+    _append_log(f"FFmpeg command: {' '.join(cmd)}")
 
     started_at = datetime.now(timezone.utc)
 
@@ -428,6 +437,9 @@ async def transcode_video(
                 temp_output.unlink()
 
             _append_log(f"Transcode failed for {video_path.name}: exit code {process.returncode}")
+            # Log last 500 chars of output for debugging
+            if output:
+                _append_log(f"FFmpeg output: {output[-500:]}")
 
             # If hardware accel failed, suggest fallback
             if hardware_accel and "Error" in output:
@@ -454,6 +466,17 @@ async def transcode_video(
         archived_path = None
         if archive_original and video_path.exists():
             archived_path = _archive_original(video_path)
+
+            # If input was .mp4, rename output to take its place (remove _transcoded suffix)
+            if archived_path and video_path.suffix.lower() == ".mp4":
+                final_path = video_path.parent / f"{video_path.stem}.mp4"
+                if final_path != output_path and not final_path.exists():
+                    try:
+                        output_path.rename(final_path)
+                        _append_log(f"Renamed {output_path.name} -> {final_path.name}")
+                        output_path = final_path
+                    except OSError as e:
+                        _append_log(f"Warning: Could not rename to original name: {e}")
 
         _mark_as_compatible(output_path, was_transcoded=True, info=probe_result)
 
