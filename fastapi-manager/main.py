@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from config import settings
-from routers import download, sync, organize, web, process
+from routers import download, sync, organize, web, process, transcode
 from services import rclone, pyscenedetect
 from services.download_queue import download_queue
 
@@ -170,6 +170,7 @@ app.include_router(download.router, prefix="/api/download", tags=["download"])
 app.include_router(sync.router, prefix="/api/sync", tags=["sync"])
 app.include_router(organize.router, prefix="/api/organize", tags=["organize"])
 app.include_router(process.router, prefix="/api/process", tags=["process"])
+app.include_router(transcode.router, prefix="/api/transcode", tags=["transcode"])
 app.include_router(web.router, prefix="/manager", tags=["web"])
 
 

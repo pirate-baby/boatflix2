@@ -20,5 +20,13 @@ class Settings:
     SCENE_DETECT_THRESHOLD: float = float(os.getenv("SCENE_DETECT_THRESHOLD", "27.0"))
     SCENE_DETECT_MIN_SCENE_LEN: float = float(os.getenv("SCENE_DETECT_MIN_SCENE_LEN", "0.5"))
 
+    # Transcode settings for Chromium-compatible video conversion
+    # CRF 22 = good quality/size balance for Pi storage, preset slow = better compression
+    TRANSCODE_CRF: int = int(os.getenv("TRANSCODE_CRF", "22"))
+    TRANSCODE_PRESET: str = os.getenv("TRANSCODE_PRESET", "slow")
+    TRANSCODE_AUDIO_BITRATE: str = os.getenv("TRANSCODE_AUDIO_BITRATE", "128k")
+    TRANSCODE_HARDWARE_ACCEL: str | None = os.getenv("TRANSCODE_HARDWARE_ACCEL")
+    TRANSCODE_ARCHIVE_ORIGINAL: bool = os.getenv("TRANSCODE_ARCHIVE_ORIGINAL", "true").lower() == "true"
+
 
 settings = Settings()
