@@ -7,7 +7,13 @@ fi
 chown -R ${PUID}:${PGID} /config/qBittorrent
 
 # Set the rights on the /downloads folder
-find /downloads -not -user ${PUID} -execdir chown ${PUID}:${PGID} {} \+
+set +e
+chown -R ${PUID}:${PGID} /downloads 2>/dev/null
+exit_code_chown=$?
+set -e
+if (( ${exit_code_chown} != 0 )); then
+    echo "[WARNING] Unable to chown /downloads, assuming SMB/NFS mountpoint or external drive" | ts '%Y-%m-%d %H:%M:%.S'
+fi
 
 # Check if qBittorrent.conf exists, if not, copy the template over
 if [ ! -e /config/qBittorrent/config/qBittorrent.conf ]; then
