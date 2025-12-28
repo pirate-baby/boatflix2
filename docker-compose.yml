@@ -2,6 +2,9 @@ services:
   jellyfin:
     image: jellyfin/jellyfin
     container_name: jellyfin
+    network_mode: "service:qbittorrentvpn"
+    depends_on:
+      - qbittorrentvpn
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -10,10 +13,6 @@ services:
       - ./configs/jellyfin:/config
       - ./configs/jellyfin/cache:/cache
       - ${MEDIA_PATH}:/mnt/media
-    ports:
-      - "8096:8096"
-    networks:
-      - media_network
     restart: unless-stopped
 
   ersatztv:
@@ -66,6 +65,7 @@ services:
       # For WireGuard: place wg0.conf in ./configs/qbittorrentvpn/wireguard/
     ports:
       - "8081:8080"  # qBittorrent WebUI
+      - "8096:8096"  # Jellyfin (routed through VPN)
       - "8999:8999"  # BitTorrent port
       - "8999:8999/udp"
     networks:
