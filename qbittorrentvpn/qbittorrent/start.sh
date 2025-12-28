@@ -124,8 +124,7 @@ else
 fi
 
 # Check if the PGID exists, if not create the group with the name 'qbittorrent'
-grep $"${PGID}:" /etc/group > /dev/null 2>&1
-if [ $? -eq 0 ]; then
+if grep -q "${PGID}:" /etc/group 2>/dev/null; then
 	echo "[INFO] A group with PGID $PGID already exists in /etc/group within this container, nothing to do." | ts '%Y-%m-%d %H:%M:%.S'
 else
 	echo "[INFO] A group with PGID $PGID does not exist within this container, adding a group called 'qbittorrent' with PGID $PGID" | ts '%Y-%m-%d %H:%M:%.S'
@@ -133,8 +132,7 @@ else
 fi
 
 # Check if the PUID exists, if not create the user with the name 'qbittorrent', with the correct group
-id ${PUID} > /dev/null 2>&1
-if [ $? -eq 0 ]; then
+if id ${PUID} > /dev/null 2>&1; then
 	echo "[INFO] An user with PUID $PUID already exists within this container, nothing to do." | ts '%Y-%m-%d %H:%M:%.S'
 else
 	echo "[INFO] An user with PUID $PUID does not exist within this container, adding an user called 'qbittorrent user' with PUID $PUID" | ts '%Y-%m-%d %H:%M:%.S'
