@@ -60,7 +60,7 @@ services:
       - DEBUG=false
     volumes:
       - ./configs/qbittorrentvpn:/config
-      - ${MEDIA_PATH}/Downloads:/downloads
+      - ${MEDIA_PATH}/Downloads:/downloads:rw
       # Mount your VPN config file (OpenVPN .ovpn or WireGuard .conf)
       # For OpenVPN: place your .ovpn file in ./configs/qbittorrentvpn/openvpn/
       # For WireGuard: place wg0.conf in ./configs/qbittorrentvpn/wireguard/
