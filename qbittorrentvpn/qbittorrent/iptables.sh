@@ -180,6 +180,10 @@ iptables -A OUTPUT -p icmp --icmp-type echo-request -j ACCEPT
 # accept output from local loopback adapter
 iptables -A OUTPUT -o lo -j ACCEPT
 
+# Fix MTU issues with VPN - clamp MSS to path MTU
+iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+
 echo "[INFO] iptables defined as follows..." | ts '%Y-%m-%d %H:%M:%.S'
 echo "--------------------"
 iptables -S
