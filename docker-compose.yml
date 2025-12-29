@@ -21,7 +21,7 @@ services:
 
   # HTTP proxy through VPN for Jellyfin plugins
   tinyproxy:
-    image: vimagick/tinyproxy
+    build: ./tinyproxy
     container_name: tinyproxy
     network_mode: "service:qbittorrentvpn"
     depends_on:
