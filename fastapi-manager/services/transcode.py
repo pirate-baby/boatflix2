@@ -405,12 +405,16 @@ async def transcode_video(
     else:
         cmd.extend(["-c:a", "copy"])
 
-    # Output options - MP4 has limited subtitle support, so we skip them
+    # Output options with subtitle preservation
+    # MP4 supports mov_text subtitles (text-based subs like SRT, ASS, SSA)
+    # Bitmap subtitles (PGS, VOBSUB) cannot be converted and will be skipped
     cmd.extend([
-        "-f", "mp4",  # Explicitly set output format (temp file doesn't have .mp4 extension)
-        "-movflags", "+faststart",  # Enable streaming
         "-map", "0:v:0",  # First video stream
         "-map", "0:a:0?",  # First audio stream (optional)
+        "-map", "0:s?",  # All subtitle streams (optional)
+        "-c:s", "mov_text",  # Convert text subs to MP4-compatible format
+        "-f", "mp4",  # Explicitly set output format (temp file doesn't have .mp4 extension)
+        "-movflags", "+faststart",  # Enable streaming
         str(temp_output),
     ])
 
@@ -442,16 +446,68 @@ async def transcode_video(
             if output:
                 _append_log(f"FFmpeg output: {output[-500:]}")
 
-            # If hardware accel failed, suggest fallback
-            if hardware_accel and "Error" in output:
-                _append_log("Hardware acceleration may not be available, try without it")
+            # Check if failure was due to subtitle conversion (bitmap subs like PGS/VOBSUB)
+            subtitle_error_indicators = [
+                "subtitle", "Subtitle", "mov_text", "codec not currently supported",
+                "Unknown encoder", "Encoder not found", "sub2video"
+            ]
+            is_subtitle_error = any(indicator in output for indicator in subtitle_error_indicators)
 
-            return {
-                "success": False,
-                "error": f"ffmpeg failed with code {process.returncode}",
-                "output": output[-2000:] if len(output) > 2000 else output,
-                "duration_seconds": duration,
-            }
+            if is_subtitle_error:
+                _append_log("Subtitle conversion failed (likely bitmap subs), retrying without subtitles...")
+                # Remove the subtitle-related arguments properly
+                cmd_no_subs = []
+                skip_next = False
+                for i, c in enumerate(cmd):
+                    if skip_next:
+                        skip_next = False
+                        continue
+                    if c == "-map" and i + 1 < len(cmd) and cmd[i + 1] == "0:s?":
+                        skip_next = True
+                        continue
+                    if c == "-c:s":
+                        skip_next = True
+                        continue
+                    cmd_no_subs.append(c)
+
+                _append_log(f"Retry FFmpeg command: {' '.join(cmd_no_subs)}")
+
+                process_retry = await asyncio.create_subprocess_exec(
+                    *cmd_no_subs,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                    env={**os.environ},
+                )
+                stdout_retry, _ = await process_retry.communicate()
+                output_retry = stdout_retry.decode("utf-8", errors="replace") if stdout_retry else ""
+
+                if process_retry.returncode != 0:
+                    if temp_output.exists():
+                        temp_output.unlink()
+                    _append_log(f"Retry also failed for {video_path.name}")
+                    return {
+                        "success": False,
+                        "error": f"ffmpeg failed with code {process_retry.returncode} (retry without subs)",
+                        "output": output_retry[-2000:] if len(output_retry) > 2000 else output_retry,
+                        "duration_seconds": duration,
+                        "subtitle_fallback_attempted": True,
+                    }
+
+                _append_log(f"Retry succeeded without subtitles for {video_path.name}")
+                ended_at = datetime.now(timezone.utc)
+                duration = (ended_at - started_at).total_seconds()
+                # Fall through to success path below
+            else:
+                # If hardware accel failed, suggest fallback
+                if hardware_accel and "Error" in output:
+                    _append_log("Hardware acceleration may not be available, try without it")
+
+                return {
+                    "success": False,
+                    "error": f"ffmpeg failed with code {process.returncode}",
+                    "output": output[-2000:] if len(output) > 2000 else output,
+                    "duration_seconds": duration,
+                }
 
         # Move temp to final
         temp_output.rename(output_path)
