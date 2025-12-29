@@ -2,17 +2,32 @@ services:
   jellyfin:
     image: jellyfin/jellyfin
     container_name: jellyfin
-    network_mode: "service:qbittorrentvpn"
-    depends_on:
-      - qbittorrentvpn
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
+      # HTTP proxy through VPN for OpenCaptions plugin
+      - HTTP_PROXY=http://qbittorrentvpn:8118
+      - HTTPS_PROXY=http://qbittorrentvpn:8118
     volumes:
       - ./configs/jellyfin:/config
       - ./configs/jellyfin/cache:/cache
       - ${MEDIA_PATH}:/mnt/media
+    ports:
+      - "8096:8096"
+    networks:
+      - media_network
+    restart: unless-stopped
+
+  # HTTP proxy through VPN for Jellyfin plugins
+  tinyproxy:
+    image: vimagick/tinyproxy
+    container_name: tinyproxy
+    network_mode: "service:qbittorrentvpn"
+    depends_on:
+      - qbittorrentvpn
+    volumes:
+      - ./configs/tinyproxy/tinyproxy.conf:/etc/tinyproxy/tinyproxy.conf:ro
     restart: unless-stopped
 
   ersatztv:
@@ -57,7 +72,7 @@ services:
       - RESTART_CONTAINER=yes
       - ENABLE_SSL=no
       - DEBUG=false
-      - ADDITIONAL_PORTS=8096
+      - ADDITIONAL_PORTS=8118
     volumes:
       - ./configs/qbittorrentvpn:/config
       - ${MEDIA_PATH}/Downloads:/downloads:rw
@@ -66,7 +81,7 @@ services:
       # For WireGuard: place wg0.conf in ./configs/qbittorrentvpn/wireguard/
     ports:
       - "8081:8080"  # qBittorrent WebUI
-      - "8096:8096"  # Jellyfin (routed through VPN)
+      - "8118:8118"  # Tinyproxy (HTTP proxy through VPN)
       - "8999:8999"  # BitTorrent port
       - "8999:8999/udp"
     networks:
@@ -76,6 +91,9 @@ services:
   nginx:
     image: nginx:alpine
     container_name: nginx
+    depends_on:
+      - jellyfin
+      - manager
     volumes:
       - ./nginx:/etc/nginx/conf.d:ro
     ports:
