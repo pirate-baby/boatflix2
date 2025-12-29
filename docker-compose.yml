@@ -57,6 +57,7 @@ services:
       - RESTART_CONTAINER=yes
       - ENABLE_SSL=no
       - DEBUG=false
+      - ADDITIONAL_PORTS=8096
     volumes:
       - ./configs/qbittorrentvpn:/config
       - ${MEDIA_PATH}/Downloads:/downloads:rw
