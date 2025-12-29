@@ -180,9 +180,14 @@ iptables -A OUTPUT -p icmp --icmp-type echo-request -j ACCEPT
 # accept output from local loopback adapter
 iptables -A OUTPUT -o lo -j ACCEPT
 
-# Fix MTU issues with VPN - clamp MSS to path MTU
-iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
-iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+# Fix MTU issues with VPN - reduce MTU on tunnel interface and clamp MSS
+VPN_INTERFACE=$(ip link show | grep -E "tun|tap|wg" | awk -F': ' '{print $2}' | head -1)
+if [[ ! -z "${VPN_INTERFACE}" ]]; then
+    echo "[INFO] Setting MTU to 1280 on ${VPN_INTERFACE}" | ts '%Y-%m-%d %H:%M:%.S'
+    ip link set dev "${VPN_INTERFACE}" mtu 1280
+fi
+iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
+iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
 
 echo "[INFO] iptables defined as follows..." | ts '%Y-%m-%d %H:%M:%.S'
 echo "--------------------"
