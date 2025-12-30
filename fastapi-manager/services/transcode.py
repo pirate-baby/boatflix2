@@ -125,12 +125,38 @@ async def probe_video(video_path: Path) -> dict:
 
         video_stream = None
         audio_stream = None
+        subtitle_streams = []
 
         for stream in data.get("streams", []):
             if stream.get("codec_type") == "video" and video_stream is None:
                 video_stream = stream
             elif stream.get("codec_type") == "audio" and audio_stream is None:
                 audio_stream = stream
+            elif stream.get("codec_type") == "subtitle":
+                subtitle_streams.append(stream)
+
+        # Classify subtitle streams as text-based or bitmap-based
+        # Text-based codecs that can be converted to mov_text
+        text_subtitle_codecs = {"subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text"}
+        # Bitmap-based codecs that CANNOT be converted to mov_text
+        bitmap_subtitle_codecs = {"hdmv_pgs_subtitle", "pgssub", "pgs", "dvd_subtitle", "dvdsub", "vobsub", "dvb_subtitle", "xsub"}
+
+        text_subs = []
+        bitmap_subs = []
+        for sub in subtitle_streams:
+            codec = (sub.get("codec_name") or "").lower()
+            sub_info = {
+                "index": sub.get("index"),
+                "codec": codec,
+                "language": sub.get("tags", {}).get("language", "unknown"),
+            }
+            if codec in bitmap_subtitle_codecs:
+                bitmap_subs.append(sub_info)
+            elif codec in text_subtitle_codecs:
+                text_subs.append(sub_info)
+            else:
+                # Unknown codec - assume bitmap to be safe (will fail conversion)
+                bitmap_subs.append(sub_info)
 
         result = {
             "success": True,
@@ -146,6 +172,11 @@ async def probe_video(video_path: Path) -> dict:
             "container": data.get("format", {}).get("format_name"),
             "duration": float(data.get("format", {}).get("duration", 0)),
             "size_bytes": int(data.get("format", {}).get("size", 0)),
+            "subtitle_streams": subtitle_streams,
+            "text_subtitles": text_subs,
+            "bitmap_subtitles": bitmap_subs,
+            "has_text_subs": len(text_subs) > 0,
+            "has_bitmap_subs": len(bitmap_subs) > 0,
         }
 
         return result
@@ -407,12 +438,30 @@ async def transcode_video(
 
     # Output options with subtitle preservation
     # MP4 supports mov_text subtitles (text-based subs like SRT, ASS, SSA)
-    # Bitmap subtitles (PGS, VOBSUB) cannot be converted and will be skipped
+    # Bitmap subtitles (PGS, VOBSUB) cannot be converted to mov_text and must be skipped
     cmd.extend([
         "-map", "0:v:0",  # First video stream
         "-map", "0:a:0?",  # First audio stream (optional)
-        "-map", "0:s?",  # All subtitle streams (optional)
-        "-c:s", "mov_text",  # Convert text subs to MP4-compatible format
+    ])
+
+    # Determine subtitle handling based on probe results
+    has_text_subs = probe_result.get("has_text_subs", False)
+    has_bitmap_subs = probe_result.get("has_bitmap_subs", False)
+    text_subs = probe_result.get("text_subtitles", [])
+
+    if has_bitmap_subs and not has_text_subs:
+        # Only bitmap subs - skip all subtitles (can't convert bitmap to mov_text)
+        _append_log(f"  Skipping bitmap subtitles (cannot convert to MP4): {[s['codec'] for s in probe_result.get('bitmap_subtitles', [])]}")
+    elif has_text_subs:
+        # Has text subs - map only text subtitle streams by their index
+        for sub in text_subs:
+            cmd.extend(["-map", f"0:{sub['index']}"])
+        cmd.extend(["-c:s", "mov_text"])  # Convert text subs to MP4-compatible format
+        if has_bitmap_subs:
+            _append_log(f"  Including text subtitles, skipping bitmap: {[s['codec'] for s in probe_result.get('bitmap_subtitles', [])]}")
+    # else: no subtitles at all, nothing to map
+
+    cmd.extend([
         "-f", "mp4",  # Explicitly set output format (temp file doesn't have .mp4 extension)
         "-movflags", "+faststart",  # Enable streaming
         str(temp_output),
