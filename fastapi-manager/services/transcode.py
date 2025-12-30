@@ -430,8 +430,33 @@ async def transcode_video(
             env={**os.environ},
         )
 
-        stdout, _ = await process.communicate()
-        output = stdout.decode("utf-8", errors="replace") if stdout else ""
+        # Stream output in real-time instead of buffering everything
+        # FFmpeg uses \r for progress updates, so we read in chunks
+        output_chunks = []
+        last_progress_log = datetime.now(timezone.utc)
+
+        while True:
+            chunk = await process.stdout.read(4096)
+            if not chunk:
+                break
+            decoded = chunk.decode("utf-8", errors="replace")
+            output_chunks.append(decoded)
+
+            # Log progress every 30 seconds for long transcodes
+            now = datetime.now(timezone.utc)
+            if (now - last_progress_log).total_seconds() >= 30:
+                # Look for ffmpeg progress info (frame, time, speed)
+                if "frame=" in decoded or "time=" in decoded:
+                    # Extract just the progress line
+                    lines = decoded.replace("\r", "\n").split("\n")
+                    for line in lines:
+                        if "frame=" in line or "time=" in line:
+                            _append_log(f"Progress: {line.strip()[:200]}")
+                            break
+                    last_progress_log = now
+
+        await process.wait()
+        output = "".join(output_chunks)
 
         ended_at = datetime.now(timezone.utc)
         duration = (ended_at - started_at).total_seconds()
@@ -478,8 +503,28 @@ async def transcode_video(
                     stderr=asyncio.subprocess.STDOUT,
                     env={**os.environ},
                 )
-                stdout_retry, _ = await process_retry.communicate()
-                output_retry = stdout_retry.decode("utf-8", errors="replace") if stdout_retry else ""
+
+                # Stream retry output in real-time too
+                retry_output_chunks = []
+                last_retry_progress = datetime.now(timezone.utc)
+                while True:
+                    chunk = await process_retry.stdout.read(4096)
+                    if not chunk:
+                        break
+                    decoded = chunk.decode("utf-8", errors="replace")
+                    retry_output_chunks.append(decoded)
+                    now = datetime.now(timezone.utc)
+                    if (now - last_retry_progress).total_seconds() >= 30:
+                        if "frame=" in decoded or "time=" in decoded:
+                            lines = decoded.replace("\r", "\n").split("\n")
+                            for line in lines:
+                                if "frame=" in line or "time=" in line:
+                                    _append_log(f"Retry progress: {line.strip()[:200]}")
+                                    break
+                            last_retry_progress = now
+
+                await process_retry.wait()
+                output_retry = "".join(retry_output_chunks)
 
                 if process_retry.returncode != 0:
                     if temp_output.exists():
