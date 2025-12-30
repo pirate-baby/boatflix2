@@ -63,6 +63,20 @@ def _append_log(message: str) -> None:
         f.write(f"[{timestamp}] {message}\n")
 
 
+def _safe_unlink(path: Path) -> bool:
+    """Safely delete a file, ignoring I/O errors from network filesystems.
+
+    Returns True if file was deleted or doesn't exist, False if deletion failed.
+    """
+    try:
+        if path.exists():
+            path.unlink()
+        return True
+    except OSError as e:
+        _append_log(f"Warning: Could not delete {path.name}: {e}")
+        return False
+
+
 def _get_transcode_marker_path(video_path: Path) -> Path:
     """Get the marker file path for a transcoded video."""
     return video_path.parent / f".{video_path.stem}.chromium_compatible"
@@ -511,9 +525,8 @@ async def transcode_video(
         duration = (ended_at - started_at).total_seconds()
 
         if process.returncode != 0:
-            # Clean up temp file
-            if temp_output.exists():
-                temp_output.unlink()
+            # Clean up temp file (ignore errors on network filesystems)
+            _safe_unlink(temp_output)
 
             _append_log(f"Transcode failed for {video_path.name}: exit code {process.returncode}")
             # Log last 500 chars of output for debugging
@@ -576,8 +589,7 @@ async def transcode_video(
                 output_retry = "".join(retry_output_chunks)
 
                 if process_retry.returncode != 0:
-                    if temp_output.exists():
-                        temp_output.unlink()
+                    _safe_unlink(temp_output)
                     _append_log(f"Retry also failed for {video_path.name}")
                     return {
                         "success": False,
@@ -664,10 +676,14 @@ async def transcode_video(
     except FileNotFoundError:
         _append_log("ERROR: ffmpeg not found in PATH")
         return {"success": False, "error": "ffmpeg not found in PATH"}
+    except OSError as e:
+        # Filesystem errors (network mount issues, disk full, etc.)
+        _append_log(f"ERROR: Filesystem error during transcode: {e}")
+        _safe_unlink(temp_output)
+        return {"success": False, "error": f"Filesystem error: {e}"}
     except Exception as e:
         _append_log(f"ERROR transcoding: {e}")
-        if temp_output.exists():
-            temp_output.unlink()
+        _safe_unlink(temp_output)
         return {"success": False, "error": str(e)}
 
 
