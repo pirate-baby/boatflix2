@@ -194,4 +194,14 @@ echo "--------------------"
 iptables -S
 echo "--------------------"
 
+# Start tinyproxy for HTTP proxy through VPN (for Jellyfin OpenSubtitles)
+echo "[INFO] Starting tinyproxy on port 8118..." | ts '%Y-%m-%d %H:%M:%.S'
+tinyproxy -c /etc/tinyproxy/tinyproxy.conf
+sleep 1
+if pgrep -x tinyproxy > /dev/null; then
+	echo "[INFO] tinyproxy started successfully" | ts '%Y-%m-%d %H:%M:%.S'
+else
+	echo "[WARN] tinyproxy failed to start" | ts '%Y-%m-%d %H:%M:%.S'
+fi
+
 exec /bin/bash /etc/qbittorrent/start.sh

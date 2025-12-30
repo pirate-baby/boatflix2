@@ -19,17 +19,6 @@ services:
       - media_network
     restart: unless-stopped
 
-  # HTTP proxy through VPN for Jellyfin plugins
-  tinyproxy:
-    build: ./tinyproxy
-    container_name: tinyproxy
-    network_mode: "service:qbittorrentvpn"
-    depends_on:
-      - qbittorrentvpn
-    volumes:
-      - ./configs/tinyproxy/tinyproxy.conf:/etc/tinyproxy/tinyproxy.conf:ro
-    restart: unless-stopped
-
   ersatztv:
     image: jasongdove/ersatztv:6562d616fb8b2043d0bd9bbc9699847a9b18f5e5
     container_name: ersatztv
@@ -45,7 +34,7 @@ services:
     restart: unless-stopped
 
   # qBittorrent with built-in VPN (ARM64 compatible)
-  # Replaces separate gluetun + qbittorrent containers
+  # Includes tinyproxy on port 8118 for HTTP proxy through VPN (used by Jellyfin OpenSubtitles)
   qbittorrentvpn:
     build: ./qbittorrentvpn
     container_name: qbittorrentvpn

@@ -58,7 +58,8 @@ RUN apt-get update \
         wireguard-tools \
         p7zip-full \
         unzip \
-        zip
+        zip \
+        tinyproxy
 
 # Build libtorrent-rasterbar
 RUN echo "Building libtorrent-rasterbar ${LIBTORRENT_VERSION}..." \
@@ -122,10 +123,12 @@ VOLUME /config /downloads
 # Copy scripts
 COPY openvpn/ /etc/openvpn/
 COPY qbittorrent/ /etc/qbittorrent/
+COPY tinyproxy.conf /etc/tinyproxy/tinyproxy.conf
 
 RUN chmod +x /etc/qbittorrent/*.sh /etc/qbittorrent/*.init /etc/openvpn/*.sh
 
 EXPOSE 8080
+EXPOSE 8118
 EXPOSE 8999
 EXPOSE 8999/udp
 
