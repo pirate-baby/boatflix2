@@ -9,6 +9,13 @@
     <p>Manage your YouTube playlists and sync them to Jellyfin</p>
 </hgroup>
 
+<!-- Error message from OAuth callback -->
+<div id="oauth-error-alert" style="display: none;">
+    <article class="error">
+        <p id="oauth-error-message"></p>
+    </article>
+</div>
+
 <!-- Sync Status & Controls -->
 <article>
     <header>
@@ -63,6 +70,16 @@ let syncStatusInterval = null;
 
 // Load initial data
 document.addEventListener('DOMContentLoaded', function() {
+    // Check for error in URL params
+    const urlParams = new URLSearchParams(window.location.search);
+    const error = urlParams.get('error');
+    if (error) {
+        document.getElementById('oauth-error-alert').style.display = 'block';
+        document.getElementById('oauth-error-message').textContent = decodeURIComponent(error);
+        // Remove error from URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
     loadUsers();
     loadPlaylists();
     loadQuotaInfo();

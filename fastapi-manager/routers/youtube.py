@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
 
@@ -109,17 +110,21 @@ async def oauth_callback(code: str, state: str):
         logger.info(f"Added YouTube user: {user_data['email']}")
 
         # Redirect to YouTube management page
-        return {
-            "message": "YouTube account connected successfully",
-            "user_id": user_id,
-            "redirect": "/manager/youtube",
-        }
+        return RedirectResponse(url="/manager/youtube", status_code=302)
 
     except YouTubeAPIError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"OAuth callback failed: {e}")
+        # Redirect to YouTube page with error message in query param
+        return RedirectResponse(
+            url=f"/manager/youtube?error={str(e)}",
+            status_code=302
+        )
     except Exception as e:
         logger.error(f"OAuth callback failed: {e}")
-        raise HTTPException(status_code=500, detail="Failed to connect YouTube account")
+        return RedirectResponse(
+            url="/manager/youtube?error=Failed to connect YouTube account",
+            status_code=302
+        )
 
 
 # User Management
