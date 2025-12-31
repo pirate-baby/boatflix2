@@ -1,0 +1,339 @@
+{% extends "base.html" %}
+
+{% block title %}YouTube Sync - Media Manager{% endblock %}
+{% block nav_youtube %}active{% endblock %}
+
+{% block content %}
+<hgroup>
+    <h1>YouTube / YouTube Music Sync</h1>
+    <p>Manage your YouTube playlists and sync them to Jellyfin</p>
+</hgroup>
+
+<!-- Sync Status & Controls -->
+<article>
+    <header>
+        <div class="grid">
+            <hgroup>
+                <h2>Sync Status</h2>
+                <p id="sync-status-message">Checking...</p>
+            </hgroup>
+            <div style="text-align: right;">
+                <button id="sync-all-btn" onclick="syncAll()">
+                    <span class="btn-text">Sync All Playlists</span>
+                    <span class="btn-loading" style="display: none;" aria-busy="true"></span>
+                </button>
+            </div>
+        </div>
+    </header>
+    <div id="sync-progress" style="display: none;">
+        <progress></progress>
+        <p id="sync-progress-message"></p>
+    </div>
+    <div id="quota-info" class="grid">
+        <p><strong>API Quota:</strong> <span id="quota-used">0</span> / 10,000 units used</p>
+        <p style="text-align: right;"><small id="quota-reset">Resets in calculating...</small></p>
+    </div>
+</article>
+
+<!-- Add New User -->
+<article>
+    <header>
+        <h2>Connected YouTube Accounts</h2>
+    </header>
+    <div id="users-list">
+        <p aria-busy="true">Loading users...</p>
+    </div>
+    <footer>
+        <button onclick="addNewUser()" class="outline">
+            Add YouTube Account
+        </button>
+    </footer>
+</article>
+
+<!-- Playlists by User -->
+<div id="playlists-container">
+    <p aria-busy="true">Loading playlists...</p>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let syncStatusInterval = null;
+
+// Load initial data
+document.addEventListener('DOMContentLoaded', function() {
+    loadUsers();
+    loadPlaylists();
+    loadQuotaInfo();
+    checkSyncStatus();
+
+    // Poll sync status while syncing
+    syncStatusInterval = setInterval(checkSyncStatus, 3000);
+});
+
+async function loadUsers() {
+    try {
+        const response = await fetch('/api/youtube/users');
+        const users = await response.json();
+
+        const usersHtml = users.map(user => `
+            <div class="grid" style="border-bottom: 1px solid var(--pico-muted-border-color); padding: 1rem 0;">
+                <div>
+                    <strong>${escapeHtml(user.display_name)}</strong><br>
+                    <small>${escapeHtml(user.email)}</small>
+                </div>
+                <div style="text-align: right;">
+                    <small>${user.playlist_count} playlist${user.playlist_count !== 1 ? 's' : ''}</small><br>
+                    <button onclick="removeUser('${user.id}')" class="outline contrast" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">Remove</button>
+                </div>
+            </div>
+        `).join('');
+
+        document.getElementById('users-list').innerHTML = usersHtml || '<p class="muted">No YouTube accounts connected</p>';
+    } catch (error) {
+        document.getElementById('users-list').innerHTML = '<p class="error">Failed to load users</p>';
+        console.error('Failed to load users:', error);
+    }
+}
+
+async function loadPlaylists() {
+    try {
+        const response = await fetch('/api/youtube/playlists');
+        const data = await response.json();
+
+        if (data.users.length === 0) {
+            document.getElementById('playlists-container').innerHTML = `
+                <article>
+                    <p class="muted" style="text-align: center; padding: 2rem;">
+                        No YouTube accounts connected.<br>
+                        Click "Add YouTube Account" above to get started.
+                    </p>
+                </article>
+            `;
+            return;
+        }
+
+        const playlistsHtml = data.users.map(user => {
+            const playlistsTable = user.playlists.map(playlist => `
+                <tr>
+                    <td>
+                        <a href="/manager/youtube/${playlist.id}">
+                            <strong>${escapeHtml(playlist.title)}</strong>
+                        </a>
+                        ${playlist.is_liked_songs ? '<span class="badge" style="margin-left: 0.5rem;">Liked</span>' : ''}
+                    </td>
+                    <td style="text-align: center;">
+                        <span class="badge ${playlist.download_type === 'audio' ? 'badge-primary' : 'badge-secondary'}">
+                            ${playlist.download_type === 'audio' ? 'Audio' : 'Video'}
+                        </span>
+                    </td>
+                    <td style="text-align: right;">${playlist.item_count}</td>
+                    <td style="text-align: right;">
+                        <span class="badge badge-success">${playlist.completed_count}</span>
+                        <span class="badge badge-warning">${playlist.pending_count}</span>
+                        ${playlist.failed_count > 0 ? `<span class="badge badge-error">${playlist.failed_count}</span>` : ''}
+                    </td>
+                    <td style="text-align: right;">
+                        <small>${playlist.last_synced_at ? formatRelativeTime(playlist.last_synced_at) : 'Never'}</small>
+                    </td>
+                    <td style="text-align: right;">
+                        <button onclick="syncPlaylist('${playlist.id}')" class="outline" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">
+                            Sync
+                        </button>
+                        <button onclick="toggleDownloadType('${playlist.id}', '${playlist.download_type}')" class="outline" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">
+                            Switch
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+
+            return `
+                <article>
+                    <header>
+                        <h3>${escapeHtml(user.user_display_name)}</h3>
+                        <small>${escapeHtml(user.user_email)}</small>
+                    </header>
+                    <div class="overflow-auto">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Playlist</th>
+                                    <th style="text-align: center;">Type</th>
+                                    <th style="text-align: right;">Items</th>
+                                    <th style="text-align: right;">Status</th>
+                                    <th style="text-align: right;">Last Sync</th>
+                                    <th style="text-align: right;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${playlistsTable || '<tr><td colspan="6" class="muted" style="text-align: center;">No playlists found</td></tr>'}
+                            </tbody>
+                        </table>
+                    </div>
+                </article>
+            `;
+        }).join('');
+
+        document.getElementById('playlists-container').innerHTML = playlistsHtml;
+    } catch (error) {
+        document.getElementById('playlists-container').innerHTML = '<article><p class="error">Failed to load playlists</p></article>';
+        console.error('Failed to load playlists:', error);
+    }
+}
+
+async function loadQuotaInfo() {
+    try {
+        const response = await fetch('/api/youtube/quota');
+        const quota = await response.json();
+
+        document.getElementById('quota-used').textContent = quota.units_used.toLocaleString();
+
+        if (quota.quota_exceeded) {
+            document.getElementById('quota-reset').innerHTML = `<span class="error">Quota exceeded - resets ${formatRelativeTime(quota.quota_exceeded_until)}</span>`;
+        } else {
+            const resetDate = new Date(quota.reset_date);
+            const now = new Date();
+            const hoursUntilReset = Math.ceil((resetDate - now) / (1000 * 60 * 60));
+            document.getElementById('quota-reset').textContent = `Resets in ${hoursUntilReset}h`;
+        }
+    } catch (error) {
+        console.error('Failed to load quota info:', error);
+    }
+}
+
+async function checkSyncStatus() {
+    try {
+        const response = await fetch('/api/youtube/sync/status');
+        const status = await response.json();
+
+        if (status.is_running) {
+            document.getElementById('sync-progress').style.display = 'block';
+            document.getElementById('sync-progress-message').textContent = status.progress_message || 'Syncing...';
+            document.getElementById('sync-status-message').textContent = 'Sync in progress';
+            document.getElementById('sync-all-btn').disabled = true;
+        } else {
+            document.getElementById('sync-progress').style.display = 'none';
+            document.getElementById('sync-status-message').textContent = status.progress_message || 'Idle';
+            document.getElementById('sync-all-btn').disabled = false;
+        }
+
+        if (status.quota_exceeded) {
+            showToast(`API quota exceeded - resets ${formatRelativeTime(status.quota_reset_at)}`, 'error');
+        }
+    } catch (error) {
+        console.error('Failed to check sync status:', error);
+    }
+}
+
+async function addNewUser() {
+    try {
+        const response = await fetch('/api/youtube/auth/start');
+        const data = await response.json();
+
+        // Open OAuth flow in new window
+        window.location.href = data.auth_url;
+    } catch (error) {
+        showToast('Failed to start OAuth flow', 'error');
+        console.error('Failed to start OAuth:', error);
+    }
+}
+
+async function removeUser(userId) {
+    if (!confirm('Remove this YouTube account and all its playlists?')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/youtube/users/${userId}`, {
+            method: 'DELETE'
+        });
+
+        if (response.ok) {
+            showToast('YouTube account removed', 'success');
+            loadUsers();
+            loadPlaylists();
+        } else {
+            showToast('Failed to remove account', 'error');
+        }
+    } catch (error) {
+        showToast('Failed to remove account', 'error');
+        console.error('Failed to remove user:', error);
+    }
+}
+
+async function syncAll() {
+    try {
+        const response = await fetch('/api/youtube/sync/all', {
+            method: 'POST'
+        });
+
+        if (response.ok) {
+            showToast('Sync started', 'success');
+            checkSyncStatus();
+        } else {
+            const error = await response.json();
+            showToast(error.detail || 'Failed to start sync', 'error');
+        }
+    } catch (error) {
+        showToast('Failed to start sync', 'error');
+        console.error('Failed to sync all:', error);
+    }
+}
+
+async function syncPlaylist(playlistId) {
+    try {
+        const response = await fetch(`/api/youtube/playlists/${playlistId}/sync`, {
+            method: 'POST'
+        });
+
+        if (response.ok) {
+            showToast('Playlist sync started', 'success');
+            setTimeout(() => loadPlaylists(), 2000);
+        } else {
+            showToast('Failed to start sync', 'error');
+        }
+    } catch (error) {
+        showToast('Failed to sync playlist', 'error');
+        console.error('Failed to sync playlist:', error);
+    }
+}
+
+async function toggleDownloadType(playlistId, currentType) {
+    const newType = currentType === 'audio' ? 'video' : 'audio';
+
+    try {
+        const response = await fetch(`/api/youtube/playlists/${playlistId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                download_type: newType
+            })
+        });
+
+        if (response.ok) {
+            showToast(`Download type changed to ${newType}`, 'success');
+            loadPlaylists();
+        } else {
+            showToast('Failed to update playlist', 'error');
+        }
+    } catch (error) {
+        showToast('Failed to update playlist', 'error');
+        console.error('Failed to toggle download type:', error);
+    }
+}
+
+function formatRelativeTime(isoString) {
+    const dt = new Date(isoString);
+    const now = new Date();
+    const diff = (now - dt) / 1000;
+
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+}
+</script>
+{% endblock %}

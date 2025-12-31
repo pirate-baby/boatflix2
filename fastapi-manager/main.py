@@ -11,9 +11,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from config import settings
-from routers import download, sync, organize, web, process, transcode
+from routers import download, sync, organize, web, process, transcode, youtube
 from services import rclone, pyscenedetect
 from services.download_queue import download_queue
+from services.youtube_sync import youtube_sync
 
 # Configure logging
 logging.basicConfig(
@@ -82,6 +83,16 @@ async def scheduled_scene_detect():
         logger.exception(f"Scheduled scene detection error: {e}")
 
 
+async def scheduled_youtube_sync():
+    """Run scheduled YouTube playlist sync job."""
+    logger.info("Starting scheduled YouTube sync job")
+    try:
+        await youtube_sync.sync_all()
+        logger.info("Scheduled YouTube sync completed")
+    except Exception as e:
+        logger.exception(f"Scheduled YouTube sync error: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown tasks."""
@@ -125,6 +136,23 @@ async def lifespan(app: FastAPI):
             logger.error(f"Failed to configure scene detection scheduler: {e}")
     else:
         logger.info("Scene detection scheduler disabled (SCENE_DETECT_ENABLED=false)")
+
+    # Start YouTube sync scheduler if configured
+    if settings.YOUTUBE_SYNC_ENABLED:
+        try:
+            cron_kwargs = parse_cron_expression(settings.YOUTUBE_SYNC_CRON)
+            scheduler.add_job(
+                scheduled_youtube_sync,
+                CronTrigger(**cron_kwargs),
+                id="youtube_sync",
+                name="YouTube playlist sync",
+                replace_existing=True,
+            )
+            logger.info(f"YouTube sync scheduler configured with cron: {settings.YOUTUBE_SYNC_CRON}")
+        except Exception as e:
+            logger.error(f"Failed to configure YouTube sync scheduler: {e}")
+    else:
+        logger.info("YouTube sync scheduler disabled (YOUTUBE_SYNC_ENABLED=false)")
 
     # Start the scheduler if any jobs were added
     if scheduler.get_jobs():
@@ -171,6 +199,7 @@ app.include_router(sync.router, prefix="/api/sync", tags=["sync"])
 app.include_router(organize.router, prefix="/api/organize", tags=["organize"])
 app.include_router(process.router, prefix="/api/process", tags=["process"])
 app.include_router(transcode.router, prefix="/api/transcode", tags=["transcode"])
+app.include_router(youtube.router, prefix="/api/youtube", tags=["youtube"])
 app.include_router(web.router, prefix="/manager", tags=["web"])
 
 

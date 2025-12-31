@@ -28,5 +28,14 @@ class Settings:
     TRANSCODE_HARDWARE_ACCEL: str | None = os.getenv("TRANSCODE_HARDWARE_ACCEL")
     TRANSCODE_ARCHIVE_ORIGINAL: bool = os.getenv("TRANSCODE_ARCHIVE_ORIGINAL", "true").lower() == "true"
 
+    # YouTube sync settings
+    YOUTUBE_SYNC_ENABLED: bool = os.getenv("YOUTUBE_SYNC_ENABLED", "true").lower() == "true"
+    YOUTUBE_SYNC_CRON: str = os.getenv("YOUTUBE_SYNC_CRON", "0 */6 * * *")  # Every 6 hours
+    YOUTUBE_CLIENT_ID: str | None = os.getenv("YOUTUBE_CLIENT_ID")
+    YOUTUBE_CLIENT_SECRET: str | None = os.getenv("YOUTUBE_CLIENT_SECRET")
+    YOUTUBE_REDIRECT_URI: str = os.getenv("YOUTUBE_REDIRECT_URI", "http://manager.localhost/manager/youtube")
+    # Encryption key for OAuth tokens (must be 32 url-safe base64-encoded bytes)
+    YOUTUBE_ENCRYPTION_KEY: str | None = os.getenv("YOUTUBE_ENCRYPTION_KEY")
+
 
 settings = Settings()

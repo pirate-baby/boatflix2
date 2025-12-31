@@ -71,6 +71,27 @@ async def transcode_page(request: Request):
     )
 
 
+@router.get("/youtube", response_class=HTMLResponse)
+async def youtube_page(request: Request):
+    """Render the YouTube sync main page (playlist index)."""
+    return templates.TemplateResponse(
+        "youtube.html",
+        {"request": request},
+    )
+
+
+@router.get("/youtube/{playlist_id}", response_class=HTMLResponse)
+async def youtube_playlist_detail_page(request: Request, playlist_id: str):
+    """Render the YouTube playlist detail page."""
+    return templates.TemplateResponse(
+        "youtube_detail.html",
+        {
+            "request": request,
+            "playlist_id": playlist_id,
+        },
+    )
+
+
 # API endpoints for the web UI
 
 @router.get("/api/pending-count")

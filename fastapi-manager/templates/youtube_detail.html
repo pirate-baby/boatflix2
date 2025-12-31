@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+
+{% block title %}Playlist Detail - YouTube Sync{% endblock %}
+{% block nav_youtube %}active{% endblock %}
+
+{% block content %}
+<div id="playlist-header">
+    <p aria-busy="true">Loading playlist...</p>
+</div>
+
+<!-- Filter and Controls -->
+<article>
+    <div class="grid">
+        <div>
+            <label for="status-filter">Filter by status:</label>
+            <select id="status-filter" onchange="loadPlaylistItems()">
+                <option value="">All Items</option>
+                <option value="pending">Pending</option>
+                <option value="downloading">Downloading</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
+            </select>
+        </div>
+        <div style="text-align: right; align-self: end;">
+            <button onclick="syncThisPlaylist()" class="outline">
+                <span class="btn-text">Sync This Playlist</span>
+                <span class="btn-loading" style="display: none;" aria-busy="true"></span>
+            </button>
+            <a href="/manager/youtube" role="button" class="outline">Back to All Playlists</a>
+        </div>
+    </div>
+</article>
+
+<!-- Playlist Items Table -->
+<article>
+    <header>
+        <h2>Playlist Items</h2>
+    </header>
+    <div id="items-container">
+        <p aria-busy="true">Loading items...</p>
+    </div>
+    <footer id="pagination-controls" style="display: none;">
+        <div class="grid">
+            <button id="prev-btn" onclick="previousPage()" disabled>Previous</button>
+            <p style="text-align: center;"><span id="page-info"></span></p>
+            <button id="next-btn" onclick="nextPage()">Next</button>
+        </div>
+    </footer>
+</article>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PLAYLIST_ID = '{{ playlist_id }}';
+const PAGE_SIZE = 100;
+let currentOffset = 0;
+let totalItems = 0;
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadPlaylistInfo();
+    loadPlaylistItems();
+
+    // Auto-refresh every 10 seconds
+    setInterval(loadPlaylistItems, 10000);
+});
+
+async function loadPlaylistInfo() {
+    try {
+        const response = await fetch(`/api/youtube/playlists/${PLAYLIST_ID}`);
+        const data = await response.json();
+
+        const playlist = data.playlist;
+        const headerHtml = `
+            <hgroup>
+                <h1>${escapeHtml(playlist.title)}</h1>
+                <p>
+                    ${escapeHtml(playlist.user_display_name)} &bull;
+                    ${playlist.is_liked_songs ? 'Liked Videos' : 'Playlist'} &bull;
+                    ${playlist.item_count} items &bull;
+                    Download as: <strong>${playlist.download_type === 'audio' ? 'Audio' : 'Video'}</strong>
+                </p>
+            </hgroup>
+            <div class="grid" style="margin-top: 1rem;">
+                <div>
+                    <small><strong>Status:</strong></small><br>
+                    <span class="badge badge-success">${playlist.completed_count} Completed</span>
+                    <span class="badge badge-warning">${playlist.pending_count} Pending</span>
+                    ${playlist.failed_count > 0 ? `<span class="badge badge-error">${playlist.failed_count} Failed</span>` : ''}
+                </div>
+                <div style="text-align: right;">
+                    <small><strong>Last synced:</strong> ${playlist.last_synced_at ? formatRelativeTime(playlist.last_synced_at) : 'Never'}</small>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('playlist-header').innerHTML = headerHtml;
+        totalItems = data.total_items;
+    } catch (error) {
+        document.getElementById('playlist-header').innerHTML = '<p class="error">Failed to load playlist info</p>';
+        console.error('Failed to load playlist info:', error);
+    }
+}
+
+async function loadPlaylistItems() {
+    const statusFilter = document.getElementById('status-filter').value;
+
+    try {
+        let url = `/api/youtube/playlists/${PLAYLIST_ID}?limit=${PAGE_SIZE}&offset=${currentOffset}`;
+        if (statusFilter) {
+            url += `&status_filter=${statusFilter}`;
+        }
+
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.items.length === 0) {
+            document.getElementById('items-container').innerHTML = '<p class="muted" style="text-align: center;">No items found</p>';
+            document.getElementById('pagination-controls').style.display = 'none';
+            return;
+        }
+
+        const itemsHtml = `
+            <div class="overflow-auto">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Title</th>
+                            <th>Artist / Channel</th>
+                            <th style="text-align: center;">Status</th>
+                            <th>Added to Playlist</th>
+                            <th>Downloaded</th>
+                            <th>File Path</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${data.items.map(item => {
+                            const statusBadge = {
+                                'pending': '<span class="badge badge-warning">Pending</span>',
+                                'downloading': '<span class="badge badge-primary" aria-busy="true">Downloading</span>',
+                                'completed': '<span class="badge badge-success">Completed</span>',
+                                'failed': '<span class="badge badge-error">Failed</span>'
+                            }[item.download_status];
+
+                            return `
+                                <tr>
+                                    <td>${item.position + 1}</td>
+                                    <td>
+                                        <a href="https://www.youtube.com/watch?v=${item.youtube_video_id}" target="_blank">
+                                            ${escapeHtml(item.title)}
+                                        </a>
+                                    </td>
+                                    <td><small>${escapeHtml(item.artist || 'Unknown')}</small></td>
+                                    <td style="text-align: center;">${statusBadge}</td>
+                                    <td><small>${formatRelativeTime(item.added_to_playlist_at)}</small></td>
+                                    <td><small>${item.downloaded_at ? formatRelativeTime(item.downloaded_at) : '-'}</small></td>
+                                    <td><small>${item.file_path ? escapeHtml(item.file_path.split('/').pop()) : '-'}</small></td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+
+        document.getElementById('items-container').innerHTML = itemsHtml;
+
+        // Update pagination
+        if (data.total_items > PAGE_SIZE) {
+            document.getElementById('pagination-controls').style.display = 'block';
+            document.getElementById('prev-btn').disabled = currentOffset === 0;
+            document.getElementById('next-btn').disabled = currentOffset + PAGE_SIZE >= data.total_items;
+
+            const startItem = currentOffset + 1;
+            const endItem = Math.min(currentOffset + PAGE_SIZE, data.total_items);
+            document.getElementById('page-info').textContent = `Showing ${startItem}-${endItem} of ${data.total_items}`;
+        } else {
+            document.getElementById('pagination-controls').style.display = 'none';
+        }
+    } catch (error) {
+        document.getElementById('items-container').innerHTML = '<p class="error">Failed to load items</p>';
+        console.error('Failed to load items:', error);
+    }
+}
+
+async function syncThisPlaylist() {
+    try {
+        const response = await fetch(`/api/youtube/playlists/${PLAYLIST_ID}/sync`, {
+            method: 'POST'
+        });
+
+        if (response.ok) {
+            showToast('Playlist sync started', 'success');
+            setTimeout(() => {
+                loadPlaylistInfo();
+                loadPlaylistItems();
+            }, 2000);
+        } else {
+            showToast('Failed to start sync', 'error');
+        }
+    } catch (error) {
+        showToast('Failed to sync playlist', 'error');
+        console.error('Failed to sync playlist:', error);
+    }
+}
+
+function previousPage() {
+    if (currentOffset > 0) {
+        currentOffset = Math.max(0, currentOffset - PAGE_SIZE);
+        loadPlaylistItems();
+    }
+}
+
+function nextPage() {
+    if (currentOffset + PAGE_SIZE < totalItems) {
+        currentOffset += PAGE_SIZE;
+        loadPlaylistItems();
+    }
+}
+
+function formatRelativeTime(isoString) {
+    const dt = new Date(isoString);
+    const now = new Date();
+    const diff = (now - dt) / 1000;
+
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+}
+</script>
+{% endblock %}
