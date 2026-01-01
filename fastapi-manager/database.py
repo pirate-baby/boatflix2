@@ -40,14 +40,42 @@ def _run_migrations():
     cursor = conn.cursor()
 
     try:
-        # Migration 1: Add url column to youtube_playlists if it doesn't exist
-        cursor.execute("PRAGMA table_info(youtube_playlists)")
-        columns = cursor.fetchall()
+        # Check if youtube_playlists table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='youtube_playlists'")
+        table_exists = cursor.fetchone() is not None
 
-        if columns:  # Table exists
-            column_names = [col[1] for col in columns]
+        if table_exists:
+            # Get current table schema
+            cursor.execute("PRAGMA table_info(youtube_playlists)")
+            columns = cursor.fetchall()
+            column_info = {col[1]: col for col in columns}
 
-            if 'url' not in column_names:
+            # Check if this is the old OAuth-based schema (has user_id)
+            has_user_id = 'user_id' in column_info
+            has_url = 'url' in column_info
+
+            if has_user_id and not has_url:
+                # This is the old OAuth schema - need to migrate to new cookie-based schema
+                logger.info("Running migration: Converting from OAuth-based to cookie-based YouTube playlist schema")
+
+                # Check if there's any data
+                cursor.execute("SELECT COUNT(*) FROM youtube_playlists")
+                row_count = cursor.fetchone()[0]
+
+                if row_count > 0:
+                    logger.warning(f"Found {row_count} playlists in old OAuth schema - these will be cleared during migration")
+
+                # Drop old tables
+                cursor.execute("DROP TABLE IF EXISTS youtube_playlist_items")
+                cursor.execute("DROP TABLE IF EXISTS youtube_playlists")
+                cursor.execute("DROP TABLE IF EXISTS youtube_users")
+                cursor.execute("DROP TABLE IF EXISTS youtube_quota")
+
+                conn.commit()
+                logger.info("Successfully dropped old OAuth-based YouTube tables")
+
+            elif not has_url:
+                # Table exists but missing url column
                 logger.info("Running migration: Adding url column to youtube_playlists table")
                 cursor.execute("""
                     ALTER TABLE youtube_playlists
