@@ -50,7 +50,7 @@ class YouTubeAPIService:
         """Initialize YouTube API service."""
         self.client_id = settings.YOUTUBE_CLIENT_ID
         self.client_secret = settings.YOUTUBE_CLIENT_SECRET
-        self.redirect_uri = settings.YOUTUBE_REDIRECT_URI
+        # redirect_uri is now built dynamically per request
 
         # Initialize Fernet cipher for token encryption
         if settings.YOUTUBE_ENCRYPTION_KEY:
@@ -67,15 +67,23 @@ class YouTubeAPIService:
         """Decrypt an OAuth token."""
         return self.cipher.decrypt(encrypted_token.encode()).decode()
 
-    def create_oauth_flow(self, state: Optional[str] = None) -> tuple[Flow, str]:
+    def create_oauth_flow(self, redirect_uri: str, state: Optional[str] = None) -> tuple[Flow, str]:
         """
         Create OAuth2 flow for user authentication.
+
+        Args:
+            redirect_uri: The redirect URI for this OAuth flow
+            state: Optional state parameter
 
         Returns:
             Tuple of (Flow object, state string)
         """
         if not self.client_id or not self.client_secret:
-            raise YouTubeAPIError("YouTube OAuth credentials not configured")
+            raise YouTubeAPIError(
+                "YouTube OAuth credentials not configured. "
+                "Please set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in your .env file. "
+                "See YOUTUBE_SETUP.md for instructions."
+            )
 
         client_config = {
             "web": {
@@ -83,14 +91,14 @@ class YouTubeAPIService:
                 "client_secret": self.client_secret,
                 "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                 "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [self.redirect_uri],
+                "redirect_uris": [redirect_uri],
             }
         }
 
         flow = Flow.from_client_config(
             client_config,
             scopes=SCOPES,
-            redirect_uri=self.redirect_uri,
+            redirect_uri=redirect_uri,
         )
 
         if not state:
@@ -98,14 +106,17 @@ class YouTubeAPIService:
 
         return flow, state
 
-    def get_authorization_url(self) -> tuple[str, str]:
+    def get_authorization_url(self, redirect_uri: str) -> tuple[str, str]:
         """
         Get the OAuth2 authorization URL to redirect user to.
+
+        Args:
+            redirect_uri: The redirect URI for this OAuth flow
 
         Returns:
             Tuple of (authorization_url, state)
         """
-        flow, state = self.create_oauth_flow()
+        flow, state = self.create_oauth_flow(redirect_uri)
         auth_url, _ = flow.authorization_url(
             access_type="offline",
             include_granted_scopes="true",
@@ -115,7 +126,7 @@ class YouTubeAPIService:
         return auth_url, state
 
     async def exchange_code_for_tokens(
-        self, code: str, state: str
+        self, code: str, state: str, redirect_uri: str
     ) -> dict:
         """
         Exchange authorization code for access and refresh tokens.
@@ -123,11 +134,12 @@ class YouTubeAPIService:
         Args:
             code: Authorization code from OAuth callback
             state: State parameter for CSRF protection
+            redirect_uri: The redirect URI (must match the one used in auth request)
 
         Returns:
             Dict with user info and tokens
         """
-        flow, _ = self.create_oauth_flow(state)
+        flow, _ = self.create_oauth_flow(redirect_uri, state)
 
         try:
             flow.fetch_token(code=code)

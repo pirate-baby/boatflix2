@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select, func
 from sqlalchemy.orm import joinedload
@@ -45,29 +45,39 @@ def _get_session():
 
 
 @router.get("/auth/start", response_model=YouTubeAuthStartResponse)
-async def start_oauth():
+async def start_oauth(request: Request):
     """
     Start OAuth2 flow to add a new YouTube user.
 
     Returns authorization URL to redirect user to.
     """
     try:
-        auth_url, state = youtube_api.get_authorization_url()
+        # Build redirect URI dynamically based on the request host
+        scheme = request.url.scheme
+        host = request.headers.get("host", "manager.localhost")
+        redirect_uri = f"{scheme}://{host}/api/youtube/auth/callback"
+
+        auth_url, state = youtube_api.get_authorization_url(redirect_uri=redirect_uri)
         return YouTubeAuthStartResponse(auth_url=auth_url, state=state)
     except YouTubeAPIError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/auth/callback")
-async def oauth_callback(code: str, state: str):
+async def oauth_callback(request: Request, code: str, state: str):
     """
     Handle OAuth2 callback and create YouTube user.
 
     This endpoint is called by Google after user authorizes.
     """
     try:
+        # Build redirect URI to match what we sent to Google
+        scheme = request.url.scheme
+        host = request.headers.get("host", "manager.localhost")
+        redirect_uri = f"{scheme}://{host}/api/youtube/auth/callback"
+
         # Exchange code for tokens
-        user_data = await youtube_api.exchange_code_for_tokens(code, state)
+        user_data = await youtube_api.exchange_code_for_tokens(code, state, redirect_uri=redirect_uri)
 
         # Encrypt tokens
         encrypted_access = youtube_api.encrypt_token(user_data["access_token"])

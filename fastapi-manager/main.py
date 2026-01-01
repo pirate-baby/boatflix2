@@ -11,10 +11,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from config import settings
-from routers import download, sync, organize, web, process, transcode, youtube
+from routers import download, sync, organize, web, process, transcode, youtube_simple
 from services import rclone, pyscenedetect
 from services.download_queue import download_queue
-from services.youtube_sync import youtube_sync
+from services.youtube_sync_simple import youtube_sync_simple
 
 # Configure logging
 logging.basicConfig(
@@ -87,7 +87,7 @@ async def scheduled_youtube_sync():
     """Run scheduled YouTube playlist sync job."""
     logger.info("Starting scheduled YouTube sync job")
     try:
-        await youtube_sync.sync_all()
+        await youtube_sync_simple.sync_all_playlists()
         logger.info("Scheduled YouTube sync completed")
     except Exception as e:
         logger.exception(f"Scheduled YouTube sync error: {e}")
@@ -199,7 +199,7 @@ app.include_router(sync.router, prefix="/api/sync", tags=["sync"])
 app.include_router(organize.router, prefix="/api/organize", tags=["organize"])
 app.include_router(process.router, prefix="/api/process", tags=["process"])
 app.include_router(transcode.router, prefix="/api/transcode", tags=["transcode"])
-app.include_router(youtube.router, prefix="/api/youtube", tags=["youtube"])
+app.include_router(youtube_simple.router, prefix="/api/youtube", tags=["youtube"])
 app.include_router(web.router, prefix="/manager", tags=["web"])
 
 

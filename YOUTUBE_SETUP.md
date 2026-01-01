@@ -52,11 +52,12 @@ This guide will help you set up automatic syncing of your YouTube and YouTube Mu
    - Click "Create Credentials" > "OAuth client ID"
    - Application type: "Web application"
    - Name: "Boatflix Manager"
-   - Under "Authorized redirect URIs", add:
+   - Under "Authorized redirect URIs", add ALL domains you'll use:
      ```
      http://manager.localhost/api/youtube/auth/callback
+     http://manager.boatflix.local/api/youtube/auth/callback
      ```
-     (or your custom domain if you've configured one)
+     **Note**: The system automatically detects which domain you're using, so add all domains you might access the app from (localhost for local development, boatflix.local for network access, etc.)
    - Click "Create"
    - **IMPORTANT**: Copy your Client ID and Client Secret - you'll need these next!
 
@@ -244,15 +245,23 @@ YOUTUBE_SYNC_ENABLED=false
 
 You can still trigger manual syncs from the web UI.
 
-### Using Custom Domain
+### Using Custom Domain or Multiple Domains
 
-If you're using a custom domain instead of `manager.localhost`:
+The system **automatically detects** which domain you're using and uses the correct redirect URI. You don't need to configure `YOUTUBE_REDIRECT_URI` in your `.env` file anymore - it's built dynamically!
 
-1. Update redirect URI in Google Cloud Console OAuth settings
-2. Update `YOUTUBE_REDIRECT_URI` in `.env`:
-   ```env
-   YOUTUBE_REDIRECT_URI=https://your-domain.com/api/youtube/auth/callback
+**Just make sure ALL your domains are added** to Google Cloud Console OAuth settings:
+
+1. Go to Google Cloud Console > APIs & Services > Credentials
+2. Edit your OAuth 2.0 Client ID
+3. Under "Authorized redirect URIs", add all domains you use:
    ```
+   http://manager.localhost/api/youtube/auth/callback
+   http://manager.boatflix.local/api/youtube/auth/callback
+   http://192.168.1.100/api/youtube/auth/callback
+   https://your-domain.com/api/youtube/auth/callback
+   ```
+
+The app will automatically use whichever domain you accessed it from!
 
 ### Multiple Users
 

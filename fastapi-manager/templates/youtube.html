@@ -6,26 +6,102 @@
 {% block content %}
 <hgroup>
     <h1>YouTube / YouTube Music Sync</h1>
-    <p>Manage your YouTube playlists and sync them to Jellyfin</p>
+    <p>Sync your YouTube playlists to Jellyfin using browser cookies</p>
 </hgroup>
 
-<!-- Error message from OAuth callback -->
-<div id="oauth-error-alert" style="display: none;">
-    <article class="error">
-        <p id="oauth-error-message"></p>
-    </article>
-</div>
-
-<!-- Sync Status & Controls -->
+<!-- Cookie Upload Section -->
 <article>
+    <header>
+        <h2>Step 1: Upload YouTube Cookies</h2>
+    </header>
+
+    <div id="cookie-status">
+        <p aria-busy="true">Loading cookie status...</p>
+    </div>
+
+    <details>
+        <summary>How to export your YouTube cookies</summary>
+        <div style="margin-top: 1rem;">
+            <h4>Why cookies?</h4>
+            <p>Using browser cookies is the easiest way to access your private YouTube playlists. No OAuth setup, no API keys, and it works offline!</p>
+
+            <h4>Step-by-step instructions:</h4>
+            <ol>
+                <li><strong>Install a browser extension:</strong>
+                    <ul>
+                        <li>Chrome/Edge: <a href="https://chrome.google.com/webstore/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank" rel="noopener">Get cookies.txt LOCALLY</a></li>
+                        <li>Firefox: <a href="https://addons.mozilla.org/en-US/firefox/addon/cookies-txt/" target="_blank" rel="noopener">cookies.txt</a></li>
+                    </ul>
+                </li>
+                <li><strong>Sign in to YouTube:</strong> Make sure you're logged into your YouTube account</li>
+                <li><strong>Export cookies:</strong>
+                    <ul>
+                        <li>Navigate to <a href="https://www.youtube.com" target="_blank" rel="noopener">youtube.com</a></li>
+                        <li>Click the extension icon</li>
+                        <li>Click "Export" or "Download" to save the cookies.txt file</li>
+                    </ul>
+                </li>
+                <li><strong>Upload below:</strong> Use the form below to upload your cookies.txt file</li>
+            </ol>
+
+            <h4>Security note:</h4>
+            <p><small>Your cookies are stored securely on this server and only used to access YouTube on your behalf. They typically stay valid for 6-12 months. You can delete them at any time.</small></p>
+        </div>
+    </details>
+
+    <form id="cookie-upload-form" style="margin-top: 1rem;">
+        <input type="file" id="cookie-file" name="cookie-file" accept=".txt" required>
+        <button type="submit">
+            <span class="btn-text">Upload Cookies</span>
+            <span class="btn-loading" style="display: none;" aria-busy="true"></span>
+        </button>
+    </form>
+</article>
+
+<!-- Add Playlist Section -->
+<article id="add-playlist-section" style="display: none;">
+    <header>
+        <h2>Step 2: Add Playlists</h2>
+    </header>
+
+    <p>Enter the URL of a YouTube or YouTube Music playlist to start syncing it.</p>
+
+    <form id="add-playlist-form">
+        <label for="playlist-url">
+            Playlist URL
+            <input type="url" id="playlist-url" name="url" placeholder="https://www.youtube.com/playlist?list=..." required>
+            <small>Example: https://www.youtube.com/playlist?list=PLxxx or https://music.youtube.com/playlist?list=PLxxx</small>
+        </label>
+
+        <fieldset>
+            <legend>Download Type</legend>
+            <label>
+                <input type="radio" name="download_type" value="audio" checked>
+                Audio Only (MP3)
+            </label>
+            <label>
+                <input type="radio" name="download_type" value="video">
+                Video (MP4)
+            </label>
+        </fieldset>
+
+        <button type="submit">
+            <span class="btn-text">Add Playlist</span>
+            <span class="btn-loading" style="display: none;" aria-busy="true"></span>
+        </button>
+    </form>
+</article>
+
+<!-- Sync Status -->
+<article id="sync-status-section" style="display: none;">
     <header>
         <div class="grid">
             <hgroup>
                 <h2>Sync Status</h2>
-                <p id="sync-status-message">Checking...</p>
+                <p id="sync-status-message">Idle</p>
             </hgroup>
             <div style="text-align: right;">
-                <button id="sync-all-btn" onclick="syncAll()">
+                <button id="sync-all-btn" onclick="syncAll()" disabled>
                     <span class="btn-text">Sync All Playlists</span>
                     <span class="btn-loading" style="display: none;" aria-busy="true"></span>
                 </button>
@@ -36,30 +112,11 @@
         <progress></progress>
         <p id="sync-progress-message"></p>
     </div>
-    <div id="quota-info" class="grid">
-        <p><strong>API Quota:</strong> <span id="quota-used">0</span> / 10,000 units used</p>
-        <p style="text-align: right;"><small id="quota-reset">Resets in calculating...</small></p>
-    </div>
 </article>
 
-<!-- Add New User -->
-<article>
-    <header>
-        <h2>Connected YouTube Accounts</h2>
-    </header>
-    <div id="users-list">
-        <p aria-busy="true">Loading users...</p>
-    </div>
-    <footer>
-        <button onclick="addNewUser()" class="outline">
-            Add YouTube Account
-        </button>
-    </footer>
-</article>
-
-<!-- Playlists by User -->
+<!-- Playlists List -->
 <div id="playlists-container">
-    <p aria-busy="true">Loading playlists...</p>
+    <!-- Populated by JavaScript -->
 </div>
 
 {% endblock %}
@@ -70,152 +127,261 @@ let syncStatusInterval = null;
 
 // Load initial data
 document.addEventListener('DOMContentLoaded', function() {
-    // Check for error in URL params
-    const urlParams = new URLSearchParams(window.location.search);
-    const error = urlParams.get('error');
-    if (error) {
-        document.getElementById('oauth-error-alert').style.display = 'block';
-        document.getElementById('oauth-error-message').textContent = decodeURIComponent(error);
-        // Remove error from URL
-        window.history.replaceState({}, document.title, window.location.pathname);
-    }
-
-    loadUsers();
+    loadCookieStatus();
     loadPlaylists();
-    loadQuotaInfo();
-    checkSyncStatus();
 
-    // Poll sync status while syncing
+    // Set up cookie upload form
+    document.getElementById('cookie-upload-form').addEventListener('submit', uploadCookies);
+
+    // Set up add playlist form
+    document.getElementById('add-playlist-form').addEventListener('submit', addPlaylist);
+
+    // Poll sync status
     syncStatusInterval = setInterval(checkSyncStatus, 3000);
+    checkSyncStatus();
 });
 
-async function loadUsers() {
+async function loadCookieStatus() {
     try {
-        const response = await fetch('/api/youtube/users');
-        const users = await response.json();
+        const response = await fetch('/api/youtube/config');
+        const config = await response.json();
 
-        const usersHtml = users.map(user => `
-            <div class="grid" style="border-bottom: 1px solid var(--pico-muted-border-color); padding: 1rem 0;">
-                <div>
-                    <strong>${escapeHtml(user.display_name)}</strong><br>
-                    <small>${escapeHtml(user.email)}</small>
-                </div>
-                <div style="text-align: right;">
-                    <small>${user.playlist_count} playlist${user.playlist_count !== 1 ? 's' : ''}</small><br>
-                    <button onclick="removeUser('${user.id}')" class="outline contrast" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">Remove</button>
-                </div>
-            </div>
-        `).join('');
+        const statusDiv = document.getElementById('cookie-status');
 
-        document.getElementById('users-list').innerHTML = usersHtml || '<p class="muted">No YouTube accounts connected</p>';
+        if (config.cookies_uploaded) {
+            const uploadedDate = new Date(config.cookies_uploaded_at);
+            statusDiv.innerHTML = `
+                <div class="grid">
+                    <div>
+                        <p style="color: var(--pico-ins-color);">✓ Cookies uploaded</p>
+                        <small>Uploaded ${formatRelativeTime(config.cookies_uploaded_at)}</small>
+                    </div>
+                    <div style="text-align: right;">
+                        <button onclick="deleteCookies()" class="outline contrast" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">
+                            Delete Cookies
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            // Show add playlist section
+            document.getElementById('add-playlist-section').style.display = 'block';
+            document.getElementById('sync-status-section').style.display = 'block';
+        } else {
+            statusDiv.innerHTML = `
+                <p style="color: var(--pico-del-color);">✗ No cookies uploaded yet</p>
+                <small>Please upload your YouTube cookies to get started</small>
+            `;
+
+            // Hide add playlist section
+            document.getElementById('add-playlist-section').style.display = 'none';
+            document.getElementById('sync-status-section').style.display = 'none';
+        }
     } catch (error) {
-        document.getElementById('users-list').innerHTML = '<p class="error">Failed to load users</p>';
-        console.error('Failed to load users:', error);
+        console.error('Failed to load cookie status:', error);
+        document.getElementById('cookie-status').innerHTML = '<p class="error">Failed to load status</p>';
+    }
+}
+
+async function uploadCookies(event) {
+    event.preventDefault();
+
+    const form = event.target;
+    const fileInput = document.getElementById('cookie-file');
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const btnText = submitBtn.querySelector('.btn-text');
+    const btnLoading = submitBtn.querySelector('.btn-loading');
+
+    if (!fileInput.files || fileInput.files.length === 0) {
+        showToast('Please select a cookies.txt file', 'error');
+        return;
+    }
+
+    const file = fileInput.files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+
+    // Show loading
+    submitBtn.disabled = true;
+    btnText.style.display = 'none';
+    btnLoading.style.display = 'inline';
+
+    try {
+        const response = await fetch('/api/youtube/upload-cookies', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (response.ok) {
+            showToast('Cookies uploaded successfully!', 'success');
+            fileInput.value = '';
+            loadCookieStatus();
+        } else {
+            const error = await response.json();
+            showToast(error.detail || 'Failed to upload cookies', 'error');
+        }
+    } catch (error) {
+        showToast('Failed to upload cookies', 'error');
+        console.error('Upload error:', error);
+    } finally {
+        submitBtn.disabled = false;
+        btnText.style.display = 'inline';
+        btnLoading.style.display = 'none';
+    }
+}
+
+async function deleteCookies() {
+    if (!confirm('Delete your uploaded YouTube cookies? You will need to upload them again to sync playlists.')) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/youtube/cookies', {
+            method: 'DELETE'
+        });
+
+        if (response.ok) {
+            showToast('Cookies deleted', 'success');
+            loadCookieStatus();
+            loadPlaylists();
+        } else {
+            showToast('Failed to delete cookies', 'error');
+        }
+    } catch (error) {
+        showToast('Failed to delete cookies', 'error');
+        console.error('Delete error:', error);
+    }
+}
+
+async function addPlaylist(event) {
+    event.preventDefault();
+
+    const form = event.target;
+    const url = document.getElementById('playlist-url').value;
+    const downloadType = form.querySelector('input[name="download_type"]:checked').value;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const btnText = submitBtn.querySelector('.btn-text');
+    const btnLoading = submitBtn.querySelector('.btn-loading');
+
+    // Show loading
+    submitBtn.disabled = true;
+    btnText.style.display = 'none';
+    btnLoading.style.display = 'inline';
+
+    try {
+        const response = await fetch('/api/youtube/playlists', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                url: url,
+                download_type: downloadType
+            })
+        });
+
+        if (response.ok) {
+            showToast('Playlist added successfully! Syncing items in background...', 'success');
+            form.reset();
+            setTimeout(() => loadPlaylists(), 2000);
+        } else {
+            const error = await response.json();
+            showToast(error.detail || 'Failed to add playlist', 'error');
+        }
+    } catch (error) {
+        showToast('Failed to add playlist', 'error');
+        console.error('Add playlist error:', error);
+    } finally {
+        submitBtn.disabled = false;
+        btnText.style.display = 'inline';
+        btnLoading.style.display = 'none';
     }
 }
 
 async function loadPlaylists() {
     try {
         const response = await fetch('/api/youtube/playlists');
-        const data = await response.json();
+        const playlists = await response.json();
 
-        if (data.users.length === 0) {
+        if (playlists.length === 0) {
             document.getElementById('playlists-container').innerHTML = `
                 <article>
                     <p class="muted" style="text-align: center; padding: 2rem;">
-                        No YouTube accounts connected.<br>
-                        Click "Add YouTube Account" above to get started.
+                        No playlists added yet.<br>
+                        Add a playlist above to get started.
                     </p>
                 </article>
             `;
+            document.getElementById('sync-all-btn').disabled = true;
             return;
         }
 
-        const playlistsHtml = data.users.map(user => {
-            const playlistsTable = user.playlists.map(playlist => `
-                <tr>
-                    <td>
-                        <a href="/manager/youtube/${playlist.id}">
-                            <strong>${escapeHtml(playlist.title)}</strong>
-                        </a>
-                        ${playlist.is_liked_songs ? '<span class="badge" style="margin-left: 0.5rem;">Liked</span>' : ''}
-                    </td>
-                    <td style="text-align: center;">
-                        <span class="badge ${playlist.download_type === 'audio' ? 'badge-primary' : 'badge-secondary'}">
-                            ${playlist.download_type === 'audio' ? 'Audio' : 'Video'}
-                        </span>
-                    </td>
-                    <td style="text-align: right;">${playlist.item_count}</td>
-                    <td style="text-align: right;">
-                        <span class="badge badge-success">${playlist.completed_count}</span>
-                        <span class="badge badge-warning">${playlist.pending_count}</span>
-                        ${playlist.failed_count > 0 ? `<span class="badge badge-error">${playlist.failed_count}</span>` : ''}
-                    </td>
-                    <td style="text-align: right;">
-                        <small>${playlist.last_synced_at ? formatRelativeTime(playlist.last_synced_at) : 'Never'}</small>
-                    </td>
-                    <td style="text-align: right;">
-                        <button onclick="syncPlaylist('${playlist.id}')" class="outline" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">
-                            Sync
-                        </button>
-                        <button onclick="toggleDownloadType('${playlist.id}', '${playlist.download_type}')" class="outline" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">
-                            Switch
-                        </button>
-                    </td>
-                </tr>
-            `).join('');
+        // Enable sync all button
+        document.getElementById('sync-all-btn').disabled = false;
 
-            return `
-                <article>
-                    <header>
-                        <h3>${escapeHtml(user.user_display_name)}</h3>
-                        <small>${escapeHtml(user.user_email)}</small>
-                    </header>
-                    <div class="overflow-auto">
-                        <table>
-                            <thead>
+        const playlistsHtml = `
+            <article>
+                <header>
+                    <h2>Your Playlists</h2>
+                </header>
+                <div class="overflow-auto">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Playlist</th>
+                                <th style="text-align: center;">Type</th>
+                                <th style="text-align: right;">Items</th>
+                                <th style="text-align: right;">Status</th>
+                                <th style="text-align: right;">Last Sync</th>
+                                <th style="text-align: right;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${playlists.map(playlist => `
                                 <tr>
-                                    <th>Playlist</th>
-                                    <th style="text-align: center;">Type</th>
-                                    <th style="text-align: right;">Items</th>
-                                    <th style="text-align: right;">Status</th>
-                                    <th style="text-align: right;">Last Sync</th>
-                                    <th style="text-align: right;">Actions</th>
+                                    <td>
+                                        <a href="/manager/youtube/${playlist.id}">
+                                            <strong>${escapeHtml(playlist.title)}</strong>
+                                        </a>
+                                        <br>
+                                        <small class="muted">${escapeHtml(playlist.youtube_playlist_id || 'Unknown ID')}</small>
+                                    </td>
+                                    <td style="text-align: center;">
+                                        <kbd>${playlist.download_type === 'audio' ? '🎵 Audio' : '🎬 Video'}</kbd>
+                                    </td>
+                                    <td style="text-align: right;">${playlist.item_count}</td>
+                                    <td style="text-align: right;">
+                                        ${playlist.completed_count > 0 ? `<span style="color: var(--pico-ins-color);">${playlist.completed_count} ✓</span>` : ''}
+                                        ${playlist.pending_count > 0 ? `<span style="color: var(--pico-secondary);">${playlist.pending_count} ⏳</span>` : ''}
+                                        ${playlist.failed_count > 0 ? `<span style="color: var(--pico-del-color);">${playlist.failed_count} ✗</span>` : ''}
+                                        ${playlist.item_count === 0 ? '<span class="muted">-</span>' : ''}
+                                    </td>
+                                    <td style="text-align: right;">
+                                        <small>${playlist.last_synced_at ? formatRelativeTime(playlist.last_synced_at) : 'Never'}</small>
+                                    </td>
+                                    <td style="text-align: right;">
+                                        <button onclick="syncPlaylist('${playlist.id}')" class="outline" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">
+                                            Sync
+                                        </button>
+                                        <button onclick="toggleDownloadType('${playlist.id}', '${playlist.download_type}')" class="outline" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">
+                                            Switch
+                                        </button>
+                                        <button onclick="deletePlaylist('${playlist.id}')" class="outline contrast" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">
+                                            Delete
+                                        </button>
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                ${playlistsTable || '<tr><td colspan="6" class="muted" style="text-align: center;">No playlists found</td></tr>'}
-                            </tbody>
-                        </table>
-                    </div>
-                </article>
-            `;
-        }).join('');
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </article>
+        `;
 
         document.getElementById('playlists-container').innerHTML = playlistsHtml;
     } catch (error) {
-        document.getElementById('playlists-container').innerHTML = '<article><p class="error">Failed to load playlists</p></article>';
         console.error('Failed to load playlists:', error);
-    }
-}
-
-async function loadQuotaInfo() {
-    try {
-        const response = await fetch('/api/youtube/quota');
-        const quota = await response.json();
-
-        document.getElementById('quota-used').textContent = quota.units_used.toLocaleString();
-
-        if (quota.quota_exceeded) {
-            document.getElementById('quota-reset').innerHTML = `<span class="error">Quota exceeded - resets ${formatRelativeTime(quota.quota_exceeded_until)}</span>`;
-        } else {
-            const resetDate = new Date(quota.reset_date);
-            const now = new Date();
-            const hoursUntilReset = Math.ceil((resetDate - now) / (1000 * 60 * 60));
-            document.getElementById('quota-reset').textContent = `Resets in ${hoursUntilReset}h`;
-        }
-    } catch (error) {
-        console.error('Failed to load quota info:', error);
+        document.getElementById('playlists-container').innerHTML = '<article><p class="error">Failed to load playlists</p></article>';
     }
 }
 
@@ -232,69 +398,46 @@ async function checkSyncStatus() {
         } else {
             document.getElementById('sync-progress').style.display = 'none';
             document.getElementById('sync-status-message').textContent = status.progress_message || 'Idle';
-            document.getElementById('sync-all-btn').disabled = false;
-        }
 
-        if (status.quota_exceeded) {
-            showToast(`API quota exceeded - resets ${formatRelativeTime(status.quota_reset_at)}`, 'error');
+            // Re-enable sync all button if we have playlists
+            const playlistsResponse = await fetch('/api/youtube/playlists');
+            const playlists = await playlistsResponse.json();
+            document.getElementById('sync-all-btn').disabled = playlists.length === 0;
         }
     } catch (error) {
         console.error('Failed to check sync status:', error);
     }
 }
 
-async function addNewUser() {
-    try {
-        const response = await fetch('/api/youtube/auth/start');
-        const data = await response.json();
-
-        // Open OAuth flow in new window
-        window.location.href = data.auth_url;
-    } catch (error) {
-        showToast('Failed to start OAuth flow', 'error');
-        console.error('Failed to start OAuth:', error);
-    }
-}
-
-async function removeUser(userId) {
-    if (!confirm('Remove this YouTube account and all its playlists?')) {
-        return;
-    }
-
-    try {
-        const response = await fetch(`/api/youtube/users/${userId}`, {
-            method: 'DELETE'
-        });
-
-        if (response.ok) {
-            showToast('YouTube account removed', 'success');
-            loadUsers();
-            loadPlaylists();
-        } else {
-            showToast('Failed to remove account', 'error');
-        }
-    } catch (error) {
-        showToast('Failed to remove account', 'error');
-        console.error('Failed to remove user:', error);
-    }
-}
-
 async function syncAll() {
+    const btn = document.getElementById('sync-all-btn');
+    const btnText = btn.querySelector('.btn-text');
+    const btnLoading = btn.querySelector('.btn-loading');
+
+    btn.disabled = true;
+    btnText.style.display = 'none';
+    btnLoading.style.display = 'inline';
+
     try {
         const response = await fetch('/api/youtube/sync/all', {
             method: 'POST'
         });
 
         if (response.ok) {
-            showToast('Sync started', 'success');
+            showToast('Sync started for all playlists', 'success');
             checkSyncStatus();
         } else {
             const error = await response.json();
             showToast(error.detail || 'Failed to start sync', 'error');
+            btn.disabled = false;
         }
     } catch (error) {
         showToast('Failed to start sync', 'error');
-        console.error('Failed to sync all:', error);
+        console.error('Sync error:', error);
+        btn.disabled = false;
+    } finally {
+        btnText.style.display = 'inline';
+        btnLoading.style.display = 'none';
     }
 }
 
@@ -308,11 +451,12 @@ async function syncPlaylist(playlistId) {
             showToast('Playlist sync started', 'success');
             setTimeout(() => loadPlaylists(), 2000);
         } else {
-            showToast('Failed to start sync', 'error');
+            const error = await response.json();
+            showToast(error.detail || 'Failed to start sync', 'error');
         }
     } catch (error) {
         showToast('Failed to sync playlist', 'error');
-        console.error('Failed to sync playlist:', error);
+        console.error('Sync error:', error);
     }
 }
 
@@ -338,7 +482,29 @@ async function toggleDownloadType(playlistId, currentType) {
         }
     } catch (error) {
         showToast('Failed to update playlist', 'error');
-        console.error('Failed to toggle download type:', error);
+        console.error('Update error:', error);
+    }
+}
+
+async function deletePlaylist(playlistId) {
+    if (!confirm('Delete this playlist? This will remove it from sync but will not delete already downloaded files.')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/youtube/playlists/${playlistId}`, {
+            method: 'DELETE'
+        });
+
+        if (response.ok) {
+            showToast('Playlist deleted', 'success');
+            loadPlaylists();
+        } else {
+            showToast('Failed to delete playlist', 'error');
+        }
+    } catch (error) {
+        showToast('Failed to delete playlist', 'error');
+        console.error('Delete error:', error);
     }
 }
 
