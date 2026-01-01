@@ -51,21 +51,23 @@ def _run_migrations():
             column_info = {col[1]: col for col in columns}
 
             # Check if this is the old OAuth-based schema (has user_id)
+            # The OAuth schema should NOT exist in the cookie-based implementation
             has_user_id = 'user_id' in column_info
-            has_url = 'url' in column_info
 
-            if has_user_id and not has_url:
-                # This is the old OAuth schema - need to migrate to new cookie-based schema
-                logger.info("Running migration: Converting from OAuth-based to cookie-based YouTube playlist schema")
+            if has_user_id:
+                # This table has user_id which means it's from the old OAuth implementation
+                # The new cookie-based implementation doesn't use user_id at all
+                logger.info("Running migration: Detected user_id column from old OAuth schema")
+                logger.info("Dropping old YouTube tables to recreate with cookie-based schema...")
 
                 # Check if there's any data
                 cursor.execute("SELECT COUNT(*) FROM youtube_playlists")
                 row_count = cursor.fetchone()[0]
 
                 if row_count > 0:
-                    logger.warning(f"Found {row_count} playlists in old OAuth schema - these will be cleared during migration")
+                    logger.warning(f"Found {row_count} playlists in old schema - these will be cleared during migration")
 
-                # Drop old tables
+                # Drop old tables (order matters due to foreign keys)
                 cursor.execute("DROP TABLE IF EXISTS youtube_playlist_items")
                 cursor.execute("DROP TABLE IF EXISTS youtube_playlists")
                 cursor.execute("DROP TABLE IF EXISTS youtube_users")
@@ -73,23 +75,7 @@ def _run_migrations():
 
                 conn.commit()
                 logger.info("Successfully dropped old OAuth-based YouTube tables")
-
-            elif not has_url:
-                # Table exists but missing url column
-                logger.info("Running migration: Adding url column to youtube_playlists table")
-                cursor.execute("""
-                    ALTER TABLE youtube_playlists
-                    ADD COLUMN url TEXT NOT NULL DEFAULT ''
-                """)
-
-                # Create unique index on url
-                cursor.execute("""
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_youtube_playlist_url
-                    ON youtube_playlists(url)
-                """)
-
-                conn.commit()
-                logger.info("Successfully added url column and index")
+                logger.info("New tables will be created automatically with correct schema")
 
     except Exception as e:
         logger.error(f"Migration failed: {e}")
