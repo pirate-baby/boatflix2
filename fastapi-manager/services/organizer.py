@@ -1,5 +1,6 @@
 """Torrent organizer service for sorting downloaded media."""
 
+import logging
 import os
 import shutil
 from pathlib import Path
@@ -7,6 +8,8 @@ from typing import Literal
 
 from config import settings
 from services.metadata import is_video_file, is_audio_file, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS
+
+logger = logging.getLogger(__name__)
 
 
 def get_jellyfin_library_paths() -> dict[str, Path]:
@@ -121,6 +124,8 @@ def resolve_conflict(dest_path: Path) -> Path:
     if not dest_path.exists():
         return dest_path
 
+    logger.warning(f"Destination already exists, resolving conflict: {dest_path}")
+
     # For files, insert number before extension
     if dest_path.suffix:
         base = dest_path.stem
@@ -130,6 +135,7 @@ def resolve_conflict(dest_path: Path) -> Path:
         while True:
             new_path = parent / f"{base} ({counter}){ext}"
             if not new_path.exists():
+                logger.info(f"Resolved conflict by renaming to: {new_path}")
                 return new_path
             counter += 1
 
@@ -138,6 +144,7 @@ def resolve_conflict(dest_path: Path) -> Path:
     while True:
         new_path = Path(f"{dest_path} ({counter})")
         if not new_path.exists():
+            logger.info(f"Resolved conflict by renaming to: {new_path}")
             return new_path
         counter += 1
 
@@ -271,10 +278,15 @@ async def move_item(
     """
     source = Path(source_path)
 
+    logger.info(f"Starting move operation: {source_path} -> {media_type}")
+    logger.debug(f"Metadata: {metadata}")
+
     if not source.exists():
+        error_msg = f"Source not found: {source_path}"
+        logger.error(error_msg)
         return {
             'success': False,
-            'error': f"Source not found: {source_path}"
+            'error': error_msg
         }
 
     result = {
@@ -282,6 +294,8 @@ async def move_item(
         'source': str(source),
         'destination': None,
         'files_moved': [],
+        'files_skipped': [],
+        'warnings': [],
         'error': None
     }
 
@@ -291,26 +305,53 @@ async def move_item(
                 metadata.get('title', source.stem),
                 metadata.get('year')
             )
+            original_dest = str(dest_folder)
             dest_folder = resolve_conflict(dest_folder)
+            if str(dest_folder) != original_dest:
+                result['warnings'].append(f"Destination was renamed to avoid conflict")
+
             dest_folder.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created destination folder: {dest_folder}")
 
             if source.is_file():
                 # Move single file
                 dest_file = dest_folder / source.name
+                original_file = str(dest_file)
                 dest_file = resolve_conflict(dest_file)
+                if str(dest_file) != original_file:
+                    result['warnings'].append(f"File renamed to avoid conflict: {dest_file.name}")
+
+                logger.info(f"Moving file: {source} -> {dest_file}")
                 shutil.move(str(source), str(dest_file))
                 result['files_moved'].append(str(dest_file))
             else:
-                # Move all video files from folder
-                for f in source.rglob('*'):
-                    if f.is_file() and is_video_file(str(f)):
-                        dest_file = dest_folder / f.name
-                        dest_file = resolve_conflict(dest_file)
-                        shutil.move(str(f), str(dest_file))
-                        result['files_moved'].append(str(dest_file))
+                # Move entire folder contents (preserves subtitles, images, etc.)
+                all_files = list(source.rglob('*'))
+                files_to_move = [f for f in all_files if f.is_file()]
+
+                logger.info(f"Moving entire folder with {len(files_to_move)} files (preserving all companion files)")
+
+                for f in files_to_move:
+                    # Preserve directory structure for files in subdirectories
+                    relative_path = f.relative_to(source)
+                    dest_file = dest_folder / relative_path
+
+                    # Create subdirectories if needed
+                    dest_file.parent.mkdir(parents=True, exist_ok=True)
+
+                    original_file = str(dest_file)
+                    dest_file = resolve_conflict(dest_file)
+                    if str(dest_file) != original_file:
+                        result['warnings'].append(f"File renamed to avoid conflict: {dest_file.name}")
+
+                    logger.info(f"Moving file: {relative_path}")
+                    shutil.move(str(f), str(dest_file))
+                    result['files_moved'].append(str(dest_file))
 
                 # Clean up empty source folder
-                _remove_empty_dirs(source)
+                cleanup_info = _remove_empty_dirs(source)
+                if cleanup_info.get('dirs_removed'):
+                    logger.info(f"Removed {len(cleanup_info['dirs_removed'])} empty directories during cleanup")
 
             result['destination'] = str(dest_folder)
 
@@ -321,6 +362,7 @@ async def move_item(
 
             dest_folder = generate_tv_path(title, season)
             dest_folder.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created destination folder: {dest_folder}")
 
             if source.is_file():
                 # Single episode file
@@ -329,33 +371,71 @@ async def move_item(
                 else:
                     new_name = source.name
                 dest_file = dest_folder / new_name
+                original_file = str(dest_file)
                 dest_file = resolve_conflict(dest_file)
+                if str(dest_file) != original_file:
+                    result['warnings'].append(f"File renamed to avoid conflict: {dest_file.name}")
+
+                logger.info(f"Moving TV episode: {source} -> {dest_file}")
                 shutil.move(str(source), str(dest_file))
                 result['files_moved'].append(str(dest_file))
             else:
                 # Folder with multiple episodes (season pack)
                 from services.metadata import parse_filename
-                for f in source.rglob('*'):
-                    if f.is_file() and is_video_file(str(f)):
-                        parsed = parse_filename(f.name)
-                        ep_season = parsed.get('season', season)
-                        ep_episode = parsed.get('episode')
 
-                        # Determine correct season folder
-                        ep_dest_folder = generate_tv_path(title, ep_season)
-                        ep_dest_folder.mkdir(parents=True, exist_ok=True)
+                all_files = list(source.rglob('*'))
+                files_to_move = [f for f in all_files if f.is_file()]
+                video_files = [f for f in files_to_move if is_video_file(str(f))]
 
-                        if ep_season is not None and ep_episode is not None:
-                            new_name = generate_tv_filename(title, ep_season, ep_episode, f.suffix)
-                        else:
-                            new_name = f.name
-                        dest_file = ep_dest_folder / new_name
-                        dest_file = resolve_conflict(dest_file)
-                        shutil.move(str(f), str(dest_file))
-                        result['files_moved'].append(str(dest_file))
+                logger.info(f"Moving entire folder with {len(files_to_move)} files (preserving all companion files)")
+
+                # Process video files with proper naming
+                for f in video_files:
+                    parsed = parse_filename(f.name)
+                    ep_season = parsed.get('season', season)
+                    ep_episode = parsed.get('episode')
+
+                    # Determine correct season folder
+                    ep_dest_folder = generate_tv_path(title, ep_season)
+                    ep_dest_folder.mkdir(parents=True, exist_ok=True)
+
+                    if ep_season is not None and ep_episode is not None:
+                        new_name = generate_tv_filename(title, ep_season, ep_episode, f.suffix)
+                    else:
+                        new_name = f.name
+                    dest_file = ep_dest_folder / new_name
+                    original_file = str(dest_file)
+                    dest_file = resolve_conflict(dest_file)
+                    if str(dest_file) != original_file:
+                        result['warnings'].append(f"File renamed to avoid conflict: {dest_file.name}")
+
+                    logger.info(f"Moving TV episode: {f.name} -> {dest_file}")
+                    shutil.move(str(f), str(dest_file))
+                    result['files_moved'].append(str(dest_file))
+
+                # Move non-video files (subtitles, images, etc.) to the season folder
+                non_video_files = [f for f in files_to_move if not is_video_file(str(f))]
+                for f in non_video_files:
+                    # Preserve relative path for companion files
+                    relative_path = f.relative_to(source)
+                    dest_file = dest_folder / relative_path
+
+                    # Create subdirectories if needed
+                    dest_file.parent.mkdir(parents=True, exist_ok=True)
+
+                    original_file = str(dest_file)
+                    dest_file = resolve_conflict(dest_file)
+                    if str(dest_file) != original_file:
+                        result['warnings'].append(f"File renamed to avoid conflict: {dest_file.name}")
+
+                    logger.info(f"Moving companion file: {relative_path}")
+                    shutil.move(str(f), str(dest_file))
+                    result['files_moved'].append(str(dest_file))
 
                 # Clean up empty source folder
-                _remove_empty_dirs(source)
+                cleanup_info = _remove_empty_dirs(source)
+                if cleanup_info.get('dirs_removed'):
+                    logger.info(f"Removed {len(cleanup_info['dirs_removed'])} empty directories during cleanup")
 
             result['destination'] = str(generate_tv_path(title))
 
@@ -364,63 +444,126 @@ async def move_item(
             album = metadata.get('album')
 
             dest_folder = generate_music_path(artist, album)
+            original_dest = str(dest_folder)
+            dest_folder = resolve_conflict(dest_folder)
+            if str(dest_folder) != original_dest:
+                result['warnings'].append(f"Destination was renamed to avoid conflict")
+
             dest_folder.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created destination folder: {dest_folder}")
 
             if source.is_file():
                 dest_file = dest_folder / source.name
+                original_file = str(dest_file)
                 dest_file = resolve_conflict(dest_file)
+                if str(dest_file) != original_file:
+                    result['warnings'].append(f"File renamed to avoid conflict: {dest_file.name}")
+
+                logger.info(f"Moving music file: {source} -> {dest_file}")
                 shutil.move(str(source), str(dest_file))
                 result['files_moved'].append(str(dest_file))
             else:
-                # Move all audio files from folder
-                for f in source.rglob('*'):
-                    if f.is_file() and is_audio_file(str(f)):
-                        dest_file = dest_folder / f.name
-                        dest_file = resolve_conflict(dest_file)
-                        shutil.move(str(f), str(dest_file))
-                        result['files_moved'].append(str(dest_file))
+                # Move entire album folder (preserves cover art, lyrics, etc.)
+                all_files = list(source.rglob('*'))
+                files_to_move = [f for f in all_files if f.is_file()]
+
+                logger.info(f"Moving entire folder with {len(files_to_move)} files (preserving all companion files)")
+
+                for f in files_to_move:
+                    # Preserve directory structure for files in subdirectories
+                    relative_path = f.relative_to(source)
+                    dest_file = dest_folder / relative_path
+
+                    # Create subdirectories if needed
+                    dest_file.parent.mkdir(parents=True, exist_ok=True)
+
+                    original_file = str(dest_file)
+                    dest_file = resolve_conflict(dest_file)
+                    if str(dest_file) != original_file:
+                        result['warnings'].append(f"File renamed to avoid conflict: {dest_file.name}")
+
+                    logger.info(f"Moving file: {relative_path}")
+                    shutil.move(str(f), str(dest_file))
+                    result['files_moved'].append(str(dest_file))
 
                 # Clean up empty source folder
-                _remove_empty_dirs(source)
+                cleanup_info = _remove_empty_dirs(source)
+                if cleanup_info.get('dirs_removed'):
+                    logger.info(f"Removed {len(cleanup_info['dirs_removed'])} empty directories during cleanup")
 
             result['destination'] = str(dest_folder)
 
         else:
+            error_msg = f"Unknown media type: {media_type}"
+            logger.error(error_msg)
             result['success'] = False
-            result['error'] = f"Unknown media type: {media_type}"
+            result['error'] = error_msg
+
+        if result['success']:
+            logger.info(f"Move operation completed successfully: moved {len(result['files_moved'])} files to {result['destination']}")
+            if result['warnings']:
+                logger.warning(f"Warnings during move: {', '.join(result['warnings'])}")
 
     except Exception as e:
+        error_msg = f"Error during move operation: {str(e)}"
+        logger.exception(error_msg)
         result['success'] = False
         result['error'] = str(e)
 
     return result
 
 
-def _remove_empty_dirs(path: Path) -> None:
+def _remove_empty_dirs(path: Path) -> dict:
     """Recursively remove empty directories.
 
     Args:
         path: Directory path to clean up
+
+    Returns:
+        Dict with cleanup info (files_removed, dirs_removed)
     """
+    cleanup_info = {
+        'files_removed': [],
+        'dirs_removed': []
+    }
+
     if not path.is_dir():
-        return
+        return cleanup_info
 
-    # First, recursively clean up subdirectories
-    for item in path.iterdir():
-        if item.is_dir():
-            _remove_empty_dirs(item)
+    try:
+        # First, recursively clean up subdirectories
+        for item in path.iterdir():
+            if item.is_dir():
+                subdir_info = _remove_empty_dirs(item)
+                cleanup_info['files_removed'].extend(subdir_info['files_removed'])
+                cleanup_info['dirs_removed'].extend(subdir_info['dirs_removed'])
 
-    # Check if directory is now empty (or only contains hidden files)
-    remaining = [f for f in path.iterdir() if not f.name.startswith('.')]
-    if not remaining:
-        try:
+        # Check if directory is now empty (or only contains hidden/small files)
+        remaining = [f for f in path.iterdir() if not f.name.startswith('.')]
+        if not remaining:
             # Remove hidden files first
             for f in path.iterdir():
                 if f.is_file():
+                    logger.debug(f"Removing leftover file during cleanup: {f}")
                     f.unlink()
+                    cleanup_info['files_removed'].append(str(f))
+
+            logger.info(f"Removing empty directory: {path}")
             path.rmdir()
-        except OSError:
-            pass
+            cleanup_info['dirs_removed'].append(str(path))
+        elif remaining:
+            # Log what's preventing cleanup
+            remaining_files = [f for f in remaining if f.is_file()]
+            remaining_dirs = [f for f in remaining if f.is_dir()]
+            if remaining_files:
+                logger.info(f"Cannot remove {path}: {len(remaining_files)} files still present ({', '.join(f.name for f in remaining_files[:3])}{'...' if len(remaining_files) > 3 else ''})")
+            if remaining_dirs:
+                logger.debug(f"Cannot remove {path}: {len(remaining_dirs)} non-empty subdirectories still present")
+
+    except OSError as e:
+        logger.warning(f"Could not clean up directory {path}: {e}")
+
+    return cleanup_info
 
 
 def preview_destination(

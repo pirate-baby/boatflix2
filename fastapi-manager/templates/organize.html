@@ -643,7 +643,14 @@
                 }
             }
 
-            showToast(`Moved ${result.files_moved.length} file(s) to library`, 'success');
+            // Show appropriate toast based on result
+            if (result.warnings && result.warnings.length > 0) {
+                const warningMsg = `Moved ${result.files_moved.length} file(s). Warning: ${result.warnings.join('. ')}`;
+                showToast(warningMsg, 'warning', 6000);
+            } else {
+                showToast(`Successfully moved ${result.files_moved.length} file(s)`, 'success');
+            }
+
             closeModal();
 
             // Remove from analyzed items and refresh
@@ -724,8 +731,21 @@
 
             const result = await response.json();
 
+            // Count warnings across all results
+            let totalWarnings = 0;
+            if (result.results) {
+                result.results.forEach(r => {
+                    if (r.warnings && r.warnings.length > 0) {
+                        totalWarnings += r.warnings.length;
+                    }
+                });
+            }
+
+            // Show appropriate feedback
             if (result.error_count > 0) {
-                showToast(`Moved ${result.success_count} of ${result.total} items (${result.error_count} failed)`, 'warning');
+                showToast(`Moved ${result.success_count} of ${result.total} items (${result.error_count} failed)`, 'warning', 5000);
+            } else if (totalWarnings > 0) {
+                showToast(`Successfully moved ${result.success_count} items (${totalWarnings} warnings - check logs)`, 'warning', 5000);
             } else {
                 showToast(`Successfully moved ${result.success_count} items`, 'success');
             }
