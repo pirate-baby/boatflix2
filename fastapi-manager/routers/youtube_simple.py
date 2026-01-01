@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, UploadFile, File
 from fastapi.responses import JSONResponse
-from sqlalchemy import select, func
+from sqlalchemy import select, func, case
 
 from config import settings
 from database import SessionLocal
@@ -158,19 +158,19 @@ async def list_playlists():
                 select(
                     func.count(YouTubePlaylistItem.id).label("total"),
                     func.sum(
-                        func.case(
+                        case(
                             (YouTubePlaylistItem.download_status == YouTubeItemStatus.PENDING.value, 1),
                             else_=0
                         )
                     ).label("pending"),
                     func.sum(
-                        func.case(
+                        case(
                             (YouTubePlaylistItem.download_status == YouTubeItemStatus.COMPLETED.value, 1),
                             else_=0
                         )
                     ).label("completed"),
                     func.sum(
-                        func.case(
+                        case(
                             (YouTubePlaylistItem.download_status == YouTubeItemStatus.FAILED.value, 1),
                             else_=0
                         )
@@ -299,19 +299,19 @@ async def get_playlist_detail(
             select(
                 func.count(YouTubePlaylistItem.id).label("total"),
                 func.sum(
-                    func.case(
+                    case(
                         (YouTubePlaylistItem.download_status == YouTubeItemStatus.PENDING.value, 1),
                         else_=0
                     )
                 ).label("pending"),
                 func.sum(
-                    func.case(
+                    case(
                         (YouTubePlaylistItem.download_status == YouTubeItemStatus.COMPLETED.value, 1),
                         else_=0
                     )
                 ).label("completed"),
                 func.sum(
-                    func.case(
+                    case(
                         (YouTubePlaylistItem.download_status == YouTubeItemStatus.FAILED.value, 1),
                         else_=0
                     )
@@ -398,19 +398,19 @@ async def update_playlist(playlist_id: str, update: YouTubePlaylistUpdate):
             select(
                 func.count(YouTubePlaylistItem.id).label("total"),
                 func.sum(
-                    func.case(
+                    case(
                         (YouTubePlaylistItem.download_status == YouTubeItemStatus.PENDING.value, 1),
                         else_=0
                     )
                 ).label("pending"),
                 func.sum(
-                    func.case(
+                    case(
                         (YouTubePlaylistItem.download_status == YouTubeItemStatus.COMPLETED.value, 1),
                         else_=0
                     )
                 ).label("completed"),
                 func.sum(
-                    func.case(
+                    case(
                         (YouTubePlaylistItem.download_status == YouTubeItemStatus.FAILED.value, 1),
                         else_=0
                     )
