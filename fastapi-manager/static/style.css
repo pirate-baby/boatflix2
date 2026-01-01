@@ -695,6 +695,12 @@ button.small,
     justify-content: space-between;
     align-items: center;
     padding: 0.75rem 1rem;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.bulk-item-header:hover {
+    background-color: var(--mm-hover-background, rgba(0, 0, 0, 0.05));
 }
 
 .bulk-item-info {

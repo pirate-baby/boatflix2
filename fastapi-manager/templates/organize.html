@@ -105,7 +105,7 @@
                 <div id="items-container">
                     ${data.items.map(item => `
                         <div class="bulk-item" data-path="${escapeHtml(item.path)}">
-                            <div class="bulk-item-header">
+                            <div class="bulk-item-header" data-path="${escapeHtml(item.path)}" onclick="analyzeItem(this.dataset.path)">
                                 <div class="bulk-item-info">
                                     <span class="file-icon">${getFileIcon(item.type, item.is_directory)}</span>
                                     <div class="bulk-item-name">
@@ -237,7 +237,7 @@
 
         // Update status area with checkbox
         statusEl.innerHTML = `
-            <label class="bulk-checkbox-label">
+            <label class="bulk-checkbox-label" onclick="event.stopPropagation()">
                 <input type="checkbox" class="bulk-checkbox" data-path="${escapeHtml(analysis.path)}"
                        onchange="toggleItemSelection(this.dataset.path, this.checked)" checked>
             </label>
@@ -277,7 +277,7 @@
                     </div>
                 </div>
                 <div class="inline-analysis-actions">
-                    <button class="outline small" data-path="${escapeHtml(analysis.path)}" onclick="editItem(this.dataset.path)">Edit</button>
+                    <button class="outline small" data-path="${escapeHtml(analysis.path)}" onclick="event.stopPropagation(); editItem(this.dataset.path)">Edit</button>
                 </div>
             </div>
         `;
