@@ -113,10 +113,13 @@ async def extract_playlist_items(url: str, playlist_id: Optional[str] = None) ->
         data = json.loads(stdout.decode())
         entries = data.get("entries", [])
 
+        logger.info(f"yt-dlp returned {len(entries)} entries for playlist")
+
         items = []
         for idx, entry in enumerate(entries):
             # Skip unavailable/deleted videos
             if not entry or not entry.get("id"):
+                logger.warning(f"Skipping entry {idx} - no ID or entry is None")
                 continue
 
             items.append({
@@ -128,6 +131,7 @@ async def extract_playlist_items(url: str, playlist_id: Optional[str] = None) ->
                 # This is fine for initial sync; subsequent syncs only add new items
             })
 
+        logger.info(f"Extracted {len(items)} valid items from playlist")
         return items
 
     except json.JSONDecodeError as e:

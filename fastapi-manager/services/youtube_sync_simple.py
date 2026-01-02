@@ -3,6 +3,7 @@
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from sqlalchemy import select
 
@@ -80,7 +81,9 @@ class YouTubeSyncSimple:
 
             try:
                 # Extract current playlist items from YouTube
+                logger.info(f"Extracting items for playlist: {playlist.url}")
                 youtube_items = await extract_playlist_items(playlist.url, playlist.youtube_playlist_id)
+                logger.info(f"Extracted {len(youtube_items)} items from YouTube for playlist: {playlist.title}")
 
                 # Get existing items from database
                 existing_items = session.scalars(
@@ -88,6 +91,7 @@ class YouTubeSyncSimple:
                         YouTubePlaylistItem.playlist_id == playlist_id
                     )
                 ).all()
+                logger.info(f"Found {len(existing_items)} existing items in database")
 
                 existing_video_ids = {item.youtube_video_id for item in existing_items}
 
@@ -98,7 +102,7 @@ class YouTubeSyncSimple:
                 ]
 
                 if not new_items:
-                    logger.info(f"No new items found for playlist: {playlist.title}")
+                    logger.info(f"No new items found for playlist: {playlist.title} (YouTube has {len(youtube_items)} items, DB has {len(existing_items)} items)")
                     playlist.last_synced_at = datetime.now(timezone.utc)
                     session.commit()
                     return
@@ -109,6 +113,7 @@ class YouTubeSyncSimple:
                 for item in new_items:
                     # Create playlist item record
                     playlist_item = YouTubePlaylistItem(
+                        id=str(uuid4()),
                         playlist_id=playlist_id,
                         youtube_video_id=item["video_id"],
                         title=item["title"],
@@ -121,7 +126,7 @@ class YouTubeSyncSimple:
                     )
 
                     session.add(playlist_item)
-                    session.flush()  # Get the ID
+                    session.flush()  # Ensure the record is written
 
                     # Queue download
                     video_url = f"https://www.youtube.com/watch?v={item['video_id']}"
@@ -171,7 +176,12 @@ async def sync_playlist_items(playlist_id: str):
     sync.is_running = True
 
     try:
+        logger.info(f"Background task: Starting sync for playlist {playlist_id}")
         await sync._sync_single_playlist(playlist_id)
+        logger.info(f"Background task: Completed sync for playlist {playlist_id}")
+    except Exception as e:
+        logger.error(f"Background task: Failed to sync playlist {playlist_id}: {e}", exc_info=True)
+        raise
     finally:
         sync.is_running = False
         sync.current_playlist_id = None
