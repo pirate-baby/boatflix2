@@ -45,22 +45,39 @@ class DownloadQueueManager:
         url: str,
         media_type: MediaType,
         metadata: MovieMetadata | TVMetadata | MusicMetadata,
+        session: Optional[Session] = None,
     ) -> DownloadJob:
-        """Add a new download job to the queue."""
+        """Add a new download job to the queue.
+
+        Args:
+            url: URL to download
+            media_type: Type of media (movie/tv/music)
+            metadata: Metadata for the download
+            session: Optional existing session to use (avoids nested session locks)
+
+        Returns:
+            DownloadJob: The created job
+        """
         job_id = str(uuid4())
         now = datetime.now()
 
-        with self._get_session() as session:
-            download = Download(
-                id=job_id,
-                url=url,
-                media_type=media_type.value,
-                metadata_json=json.dumps(metadata.model_dump()),
-                status=DownloadStatus.PENDING.value,
-                created_at=now,
-            )
+        download = Download(
+            id=job_id,
+            url=url,
+            media_type=media_type.value,
+            metadata_json=json.dumps(metadata.model_dump()),
+            status=DownloadStatus.PENDING.value,
+            created_at=now,
+        )
+
+        if session is not None:
+            # Use existing session (don't commit - let caller handle it)
             session.add(download)
-            session.commit()
+        else:
+            # Create new session and commit immediately
+            with self._get_session() as new_session:
+                new_session.add(download)
+                new_session.commit()
 
         return DownloadJob(
             id=job_id,

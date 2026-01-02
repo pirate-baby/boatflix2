@@ -404,11 +404,12 @@ class YouTubeSyncService:
                     album=playlist.title if not playlist.is_liked_songs else None,
                 )
 
-                # Add to download queue
+                # Add to download queue (pass session to avoid nested session lock)
                 job = self.download_queue.add_job(
                     url=video_url,
                     media_type=MediaType.MUSIC,
                     metadata=metadata,
+                    session=session,
                 )
 
                 # Update item with download reference

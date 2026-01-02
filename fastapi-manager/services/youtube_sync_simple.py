@@ -145,11 +145,12 @@ class YouTubeSyncSimple:
                             title=item["title"],
                         )
 
-                    # Add to download queue
+                    # Add to download queue (pass session to avoid nested session lock)
                     job = download_queue.add_job(
                         url=video_url,
                         media_type=media_type,
                         metadata=metadata,
+                        session=session,
                     )
 
                     # Update playlist item with download_id
