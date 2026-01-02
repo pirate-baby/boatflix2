@@ -106,7 +106,7 @@ async def get_config():
 
 
 @router.post("/upload-cookies")
-async def upload_cookies(file: UploadFile = File(...), background_tasks: BackgroundTasks):
+async def upload_cookies(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     """
     Upload YouTube cookies.txt file.
 
