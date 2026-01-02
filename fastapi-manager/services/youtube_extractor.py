@@ -33,8 +33,20 @@ async def extract_playlist_info(url: str) -> dict:
         "--dump-single-json",
         "--flat-playlist",
         "--no-warnings",
-        url,
     ]
+
+    # Special handling for Liked Videos playlist (LL)
+    # Liked Videos may need additional options for proper extraction
+    playlist_id = _extract_playlist_id_from_url(url)
+    if playlist_id == "LL":
+        # For Liked Videos, we need to ensure cookies are being used properly
+        # and may need to specify extractor args
+        cmd.extend([
+            "--extractor-args", "youtube:player_client=web",
+        ])
+        logger.info("Using special handling for Liked Videos playlist (LL)")
+
+    cmd.append(url)
 
     try:
         process = await asyncio.create_subprocess_exec(
@@ -93,8 +105,20 @@ async def extract_playlist_items(url: str, playlist_id: Optional[str] = None) ->
         "--dump-single-json",
         "--flat-playlist",
         "--no-warnings",
-        url,
     ]
+
+    # Special handling for Liked Videos playlist (LL)
+    if not playlist_id:
+        playlist_id = _extract_playlist_id_from_url(url)
+
+    if playlist_id == "LL":
+        # For Liked Videos, we need to ensure cookies are being used properly
+        cmd.extend([
+            "--extractor-args", "youtube:player_client=web",
+        ])
+        logger.info("Using special handling for Liked Videos playlist (LL)")
+
+    cmd.append(url)
 
     try:
         process = await asyncio.create_subprocess_exec(

@@ -34,6 +34,56 @@ def _get_session():
     return SessionLocal()
 
 
+async def _create_liked_playlist_if_not_exists() -> str | None:
+    """
+    Check if Liked Videos playlist exists, create if not.
+
+    Returns:
+        Playlist ID if created or already exists, None if creation failed
+    """
+    # Special URL for YouTube's Liked Videos playlist
+    liked_url = "https://www.youtube.com/playlist?list=LL"
+    liked_playlist_id = "LL"
+
+    with _get_session() as session:
+        # Check if Liked playlist already exists
+        existing = session.scalar(
+            select(YouTubePlaylist).where(
+                (YouTubePlaylist.youtube_playlist_id == liked_playlist_id) |
+                (YouTubePlaylist.url == liked_url)
+            )
+        )
+
+        if existing:
+            logger.info(f"Liked Videos playlist already exists: {existing.id}")
+            return existing.id
+
+        # Create the Liked Videos playlist
+        try:
+            playlist = YouTubePlaylist(
+                id=str(uuid4()),
+                url=liked_url,
+                youtube_playlist_id=liked_playlist_id,
+                title="Liked Videos",
+                description="Your liked YouTube videos (automatically synced)",
+                download_type=DownloadType.AUDIO.value,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+
+            session.add(playlist)
+            session.commit()
+            session.refresh(playlist)
+
+            logger.info(f"Created Liked Videos playlist: {playlist.id}")
+            return playlist.id
+
+        except Exception as e:
+            logger.error(f"Failed to create Liked Videos playlist: {e}")
+            session.rollback()
+            return None
+
+
 # Cookie Management
 
 
@@ -56,7 +106,7 @@ async def get_config():
 
 
 @router.post("/upload-cookies")
-async def upload_cookies(file: UploadFile = File(...)):
+async def upload_cookies(file: UploadFile = File(...), background_tasks: BackgroundTasks):
     """
     Upload YouTube cookies.txt file.
 
@@ -111,6 +161,18 @@ async def upload_cookies(file: UploadFile = File(...)):
             session.add(config)
 
         session.commit()
+
+    # Automatically create Liked Videos playlist if it doesn't exist
+    try:
+        liked_playlist_id = await _create_liked_playlist_if_not_exists()
+        if liked_playlist_id:
+            logger.info(f"Automatically created Liked Videos playlist: {liked_playlist_id}")
+            # Trigger background sync for the Liked playlist
+            from services.youtube_sync_simple import sync_playlist_items
+            background_tasks.add_task(sync_playlist_items, liked_playlist_id)
+    except Exception as e:
+        # Don't fail the cookie upload if Liked playlist creation fails
+        logger.warning(f"Failed to auto-create Liked Videos playlist: {e}")
 
     return {"status": "success", "message": "Cookies uploaded successfully"}
 
