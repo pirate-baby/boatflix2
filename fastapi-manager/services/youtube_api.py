@@ -338,7 +338,7 @@ class YouTubeAPIService:
                 items.append({
                     "video_id": video_id,
                     "title": snippet["title"],
-                    "artist": snippet.get("videoOwnerChannelTitle", snippet.get("channelTitle")),
+                    "artist": snippet.get("videoOwnerChannelTitle") or snippet.get("channelTitle") or "Unknown Artist",
                     "position": snippet.get("position", idx),
                     "added_at": datetime.fromisoformat(
                         snippet["publishedAt"].replace("Z", "+00:00")

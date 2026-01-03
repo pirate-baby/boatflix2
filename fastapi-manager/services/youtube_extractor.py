@@ -149,7 +149,7 @@ async def extract_playlist_items(url: str, playlist_id: Optional[str] = None) ->
             items.append({
                 "video_id": entry["id"],
                 "title": entry.get("title", "Unknown Title"),
-                "artist": entry.get("uploader") or entry.get("channel"),
+                "artist": entry.get("uploader") or entry.get("channel") or "Unknown Artist",
                 "position": idx,
                 # yt-dlp doesn't provide added_at for flat playlist, so use current time
                 # This is fine for initial sync; subsequent syncs only add new items
