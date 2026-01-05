@@ -112,6 +112,7 @@ services:
       - manager_data:/app/data
       - ${MEDIA_PATH}:/mnt/media
       - ${RCLONE_CONFIG:-./rclone.conf}:/root/.config/rclone/rclone.conf:ro
+      - ${HOME}/boatflix-data/.ssh/id_pi_transcode:/app/data/.ssh/id_pi_transcode:ro
     networks:
       - media_network
     restart: unless-stopped
