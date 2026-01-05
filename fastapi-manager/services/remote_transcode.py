@@ -52,22 +52,26 @@ async def _run_ssh_command(
 
     logger.debug(f"SSH command: {' '.join(ssh_args)}")
 
-    if capture_output:
-        process = await asyncio.create_subprocess_exec(
-            *ssh_args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await process.communicate()
-        return (
-            process.returncode,
-            stdout.decode("utf-8", errors="replace"),
-            stderr.decode("utf-8", errors="replace"),
-        )
-    else:
-        process = await asyncio.create_subprocess_exec(*ssh_args)
-        await process.wait()
-        return (process.returncode, "", "")
+    try:
+        if capture_output:
+            process = await asyncio.create_subprocess_exec(
+                *ssh_args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await process.communicate()
+            return (
+                process.returncode,
+                stdout.decode("utf-8", errors="replace"),
+                stderr.decode("utf-8", errors="replace"),
+            )
+        else:
+            process = await asyncio.create_subprocess_exec(*ssh_args)
+            await process.wait()
+            return (process.returncode, "", "")
+    except FileNotFoundError:
+        logger.error("ssh binary not found. Please install openssh-client in the container.")
+        return (127, "", "ssh binary not found")
 
 
 async def _transfer_file_to_remote(
@@ -108,11 +112,15 @@ async def _transfer_file_to_remote(
     logger.info(f"Transferring {local_path.name} to remote host...")
     logger.debug(f"rsync command: {' '.join(rsync_args)}")
 
-    process = await asyncio.create_subprocess_exec(
-        *rsync_args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *rsync_args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        logger.error("rsync binary not found. Please install rsync in the container.")
+        return False
 
     stdout, stderr = await process.communicate()
 
@@ -162,11 +170,15 @@ async def _transfer_file_from_remote(
     logger.info(f"Transferring {Path(remote_path).name} from remote host...")
     logger.debug(f"rsync command: {' '.join(rsync_args)}")
 
-    process = await asyncio.create_subprocess_exec(
-        *rsync_args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *rsync_args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        logger.error("rsync binary not found. Please install rsync in the container.")
+        return False
 
     stdout, stderr = await process.communicate()
 
@@ -426,6 +438,13 @@ async def remote_transcode_video(
             "hardware_accel": hardware_accel,
         }
 
+    except FileNotFoundError as e:
+        logger.error(f"Required binary not found for remote transcode: {e}")
+        logger.error("Please ensure openssh-client and rsync are installed in the container")
+        return {
+            "success": False,
+            "error": f"Remote transcode exception: Required binary not found ({e}). Install openssh-client and rsync.",
+        }
     except Exception as e:
         logger.exception("Remote transcode error")
         # Cleanup remote files
