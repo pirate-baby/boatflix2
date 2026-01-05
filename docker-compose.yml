@@ -96,8 +96,6 @@ services:
     container_name: manager
     environment:
       - TZ=${TZ}
-      - MEDIA_PATH=/media/boatflix/Expansion/media
-      - DOWNLOADS_PATH=/media/boatflix/Expansion/media/Downloads
       - TMDB_API_KEY=${TMDB_API_KEY:-}
       - RCLONE_REMOTE=${RCLONE_REMOTE:-}
       - RCLONE_BUCKET=${RCLONE_BUCKET:-}

@@ -713,19 +713,30 @@ def find_videos_to_transcode(
     else:
         pattern = "*"
 
-    for file_path in directory.glob(pattern):
-        if not file_path.is_file():
-            continue
-        if file_path.suffix.lower() not in VIDEO_EXTENSIONS:
-            continue
-        if file_path.name.startswith("."):
-            continue
-        # Skip files that end with _chromium (our output files)
-        if file_path.stem.endswith("_chromium"):
-            continue
-        if skip_processed and _is_already_processed(file_path):
-            continue
-        videos.append(file_path)
+    try:
+        for file_path in directory.glob(pattern):
+            try:
+                if not file_path.is_file():
+                    continue
+                if file_path.suffix.lower() not in VIDEO_EXTENSIONS:
+                    continue
+                if file_path.name.startswith("."):
+                    continue
+                # Skip files that end with _chromium (our output files)
+                if file_path.stem.endswith("_chromium"):
+                    continue
+                if skip_processed and _is_already_processed(file_path):
+                    continue
+                videos.append(file_path)
+            except OSError as e:
+                # Skip individual files/directories with I/O errors (network filesystem issues)
+                _append_log(f"Warning: Skipping {file_path} due to I/O error: {e}")
+                continue
+    except OSError as e:
+        # Handle errors during the glob operation itself (e.g., permission denied on root directory)
+        _append_log(f"Warning: Error scanning {directory} with pattern {pattern}: {e}")
+        # Return whatever videos we found before the error
+        return sorted(videos)
 
     return sorted(videos)
 
