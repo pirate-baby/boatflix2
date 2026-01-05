@@ -492,298 +492,298 @@ async def transcode_video(
 
         # Add hardware acceleration input options
         if hardware_accel == "videotoolbox":
-            cmd.extend(["-hwaccel", "videotoolbox"])
-        elif hardware_accel == "nvenc":
-            cmd.extend(["-hwaccel", "cuda"])
-        elif hardware_accel == "vaapi":
-            cmd.extend(["-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi"])
-    
-        cmd.extend(["-i", str(video_path)])
-    
-        # Video encoding options
-        if compat["needs_video_transcode"]:
-            if hardware_accel == "videotoolbox":
-                cmd.extend([
-                    "-c:v", "h264_videotoolbox",
-                    "-profile:v", "high",
-                    "-level:v", "4.1",
-                    "-b:v", "8M",  # videotoolbox doesn't support CRF well
-                ])
-            elif hardware_accel == "nvenc":
-                cmd.extend([
-                    "-c:v", "h264_nvenc",
-                    "-profile:v", "high",
-                    "-level:v", "4.1",
-                    "-cq", str(crf),
-                    "-preset", "p4",  # nvenc preset naming
-                ])
-            elif hardware_accel == "vaapi":
-                cmd.extend([
-                    "-c:v", "h264_vaapi",
-                    "-profile:v", "high",
-                    "-level:v", "41",
-                ])
-            else:
-                # Software encoding (libx264)
-                cmd.extend([
-                    "-c:v", "libx264",
-                    "-profile:v", "high",
-                    "-level:v", "4.1",
-                    "-crf", str(crf),
-                    "-preset", preset,
-                    "-pix_fmt", "yuv420p",  # 8-bit for compatibility
-                ])
-        elif compat["needs_remux"]:
-            # Just copy video stream
-            cmd.extend(["-c:v", "copy"])
-        else:
-            cmd.extend(["-c:v", "copy"])
-    
-        # Audio encoding options
-        if compat["needs_audio_transcode"]:
+        cmd.extend(["-hwaccel", "videotoolbox"])
+    elif hardware_accel == "nvenc":
+        cmd.extend(["-hwaccel", "cuda"])
+    elif hardware_accel == "vaapi":
+        cmd.extend(["-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi"])
+
+    cmd.extend(["-i", str(video_path)])
+
+    # Video encoding options
+    if compat["needs_video_transcode"]:
+        if hardware_accel == "videotoolbox":
             cmd.extend([
-                "-c:a", "aac",
-                "-b:a", audio_bitrate,
-                "-ac", "2",  # Stereo for compatibility
+                "-c:v", "h264_videotoolbox",
+                "-profile:v", "high",
+                "-level:v", "4.1",
+                "-b:v", "8M",  # videotoolbox doesn't support CRF well
+            ])
+        elif hardware_accel == "nvenc":
+            cmd.extend([
+                "-c:v", "h264_nvenc",
+                "-profile:v", "high",
+                "-level:v", "4.1",
+                "-cq", str(crf),
+                "-preset", "p4",  # nvenc preset naming
+            ])
+        elif hardware_accel == "vaapi":
+            cmd.extend([
+                "-c:v", "h264_vaapi",
+                "-profile:v", "high",
+                "-level:v", "41",
             ])
         else:
-            cmd.extend(["-c:a", "copy"])
-    
-        # Output options with subtitle preservation
-        # MP4 supports mov_text subtitles (text-based subs like SRT, ASS, SSA)
-        # Bitmap subtitles (PGS, VOBSUB) cannot be converted to mov_text and must be skipped
+            # Software encoding (libx264)
+            cmd.extend([
+                "-c:v", "libx264",
+                "-profile:v", "high",
+                "-level:v", "4.1",
+                "-crf", str(crf),
+                "-preset", preset,
+                "-pix_fmt", "yuv420p",  # 8-bit for compatibility
+            ])
+    elif compat["needs_remux"]:
+        # Just copy video stream
+        cmd.extend(["-c:v", "copy"])
+    else:
+        cmd.extend(["-c:v", "copy"])
+
+    # Audio encoding options
+    if compat["needs_audio_transcode"]:
         cmd.extend([
-            "-map", "0:v:0",  # First video stream
-            "-map", "0:a:0?",  # First audio stream (optional)
+            "-c:a", "aac",
+            "-b:a", audio_bitrate,
+            "-ac", "2",  # Stereo for compatibility
         ])
-    
-        # Determine subtitle handling based on probe results
-        has_text_subs = probe_result.get("has_text_subs", False)
-        has_bitmap_subs = probe_result.get("has_bitmap_subs", False)
-        text_subs = probe_result.get("text_subtitles", [])
-    
-        if has_bitmap_subs and not has_text_subs:
-            # Only bitmap subs - skip all subtitles (can't convert bitmap to mov_text)
-            _append_log(f"  Skipping bitmap subtitles (cannot convert to MP4): {[s['codec'] for s in probe_result.get('bitmap_subtitles', [])]}")
-        elif has_text_subs:
-            # Has text subs - map only text subtitle streams by their index
-            for sub in text_subs:
-                cmd.extend(["-map", f"0:{sub['index']}"])
-            cmd.extend(["-c:s", "mov_text"])  # Convert text subs to MP4-compatible format
-            if has_bitmap_subs:
-                _append_log(f"  Including text subtitles, skipping bitmap: {[s['codec'] for s in probe_result.get('bitmap_subtitles', [])]}")
-        # else: no subtitles at all, nothing to map
-    
-        cmd.extend([
-            "-f", "mp4",  # Explicitly set output format (temp file doesn't have .mp4 extension)
-            "-movflags", "+faststart",  # Enable streaming
-            str(temp_output),
-        ])
-    
-        _append_log(f"FFmpeg command: {' '.join(cmd)}")
-    
-        started_at = datetime.now(timezone.utc)
-    
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                env={**os.environ},
-            )
-    
-            # Stream output in real-time instead of buffering everything
-            # FFmpeg uses \r for progress updates, so we read in chunks
-            output_chunks = []
-            last_progress_log = datetime.now(timezone.utc)
-    
-            while True:
-                chunk = await process.stdout.read(4096)
-                if not chunk:
-                    break
-                decoded = chunk.decode("utf-8", errors="replace")
-                output_chunks.append(decoded)
-    
-                # Log progress every 30 seconds for long transcodes
-                now = datetime.now(timezone.utc)
-                if (now - last_progress_log).total_seconds() >= 30:
-                    # Look for ffmpeg progress info (frame, time, speed)
-                    if "frame=" in decoded or "time=" in decoded:
-                        # Extract just the progress line
-                        lines = decoded.replace("\r", "\n").split("\n")
-                        for line in lines:
-                            if "frame=" in line or "time=" in line:
-                                _append_log(f"Progress: {line.strip()[:200]}")
-                                break
-                        last_progress_log = now
-    
-            await process.wait()
-            output = "".join(output_chunks)
-    
-            ended_at = datetime.now(timezone.utc)
-            duration = (ended_at - started_at).total_seconds()
-    
-            if process.returncode != 0:
-                # Clean up temp file (ignore errors on network filesystems)
-                _safe_unlink(temp_output)
-    
-                _append_log(f"Transcode failed for {video_path.name}: exit code {process.returncode}")
-                # Log last 500 chars of output for debugging
-                if output:
-                    _append_log(f"FFmpeg output: {output[-500:]}")
-    
-                # Check if failure was due to subtitle conversion (bitmap subs like PGS/VOBSUB)
-                subtitle_error_indicators = [
-                    "subtitle", "Subtitle", "mov_text", "codec not currently supported",
-                    "Unknown encoder", "Encoder not found", "sub2video"
-                ]
-                is_subtitle_error = any(indicator in output for indicator in subtitle_error_indicators)
-    
-                if is_subtitle_error:
-                    _append_log("Subtitle conversion failed (likely bitmap subs), retrying without subtitles...")
-                    # Remove the subtitle-related arguments properly
-                    cmd_no_subs = []
-                    skip_next = False
-                    for i, c in enumerate(cmd):
-                        if skip_next:
-                            skip_next = False
-                            continue
-                        if c == "-map" and i + 1 < len(cmd) and cmd[i + 1] == "0:s?":
-                            skip_next = True
-                            continue
-                        if c == "-c:s":
-                            skip_next = True
-                            continue
-                        cmd_no_subs.append(c)
-    
-                    _append_log(f"Retry FFmpeg command: {' '.join(cmd_no_subs)}")
-    
-                    process_retry = await asyncio.create_subprocess_exec(
-                        *cmd_no_subs,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.STDOUT,
-                        env={**os.environ},
-                    )
-    
-                    # Stream retry output in real-time too
-                    retry_output_chunks = []
-                    last_retry_progress = datetime.now(timezone.utc)
-                    while True:
-                        chunk = await process_retry.stdout.read(4096)
-                        if not chunk:
+    else:
+        cmd.extend(["-c:a", "copy"])
+
+    # Output options with subtitle preservation
+    # MP4 supports mov_text subtitles (text-based subs like SRT, ASS, SSA)
+    # Bitmap subtitles (PGS, VOBSUB) cannot be converted to mov_text and must be skipped
+    cmd.extend([
+        "-map", "0:v:0",  # First video stream
+        "-map", "0:a:0?",  # First audio stream (optional)
+    ])
+
+    # Determine subtitle handling based on probe results
+    has_text_subs = probe_result.get("has_text_subs", False)
+    has_bitmap_subs = probe_result.get("has_bitmap_subs", False)
+    text_subs = probe_result.get("text_subtitles", [])
+
+    if has_bitmap_subs and not has_text_subs:
+        # Only bitmap subs - skip all subtitles (can't convert bitmap to mov_text)
+        _append_log(f"  Skipping bitmap subtitles (cannot convert to MP4): {[s['codec'] for s in probe_result.get('bitmap_subtitles', [])]}")
+    elif has_text_subs:
+        # Has text subs - map only text subtitle streams by their index
+        for sub in text_subs:
+            cmd.extend(["-map", f"0:{sub['index']}"])
+        cmd.extend(["-c:s", "mov_text"])  # Convert text subs to MP4-compatible format
+        if has_bitmap_subs:
+            _append_log(f"  Including text subtitles, skipping bitmap: {[s['codec'] for s in probe_result.get('bitmap_subtitles', [])]}")
+    # else: no subtitles at all, nothing to map
+
+    cmd.extend([
+        "-f", "mp4",  # Explicitly set output format (temp file doesn't have .mp4 extension)
+        "-movflags", "+faststart",  # Enable streaming
+        str(temp_output),
+    ])
+
+    _append_log(f"FFmpeg command: {' '.join(cmd)}")
+
+    started_at = datetime.now(timezone.utc)
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env={**os.environ},
+        )
+
+        # Stream output in real-time instead of buffering everything
+        # FFmpeg uses \r for progress updates, so we read in chunks
+        output_chunks = []
+        last_progress_log = datetime.now(timezone.utc)
+
+        while True:
+            chunk = await process.stdout.read(4096)
+            if not chunk:
+                break
+            decoded = chunk.decode("utf-8", errors="replace")
+            output_chunks.append(decoded)
+
+            # Log progress every 30 seconds for long transcodes
+            now = datetime.now(timezone.utc)
+            if (now - last_progress_log).total_seconds() >= 30:
+                # Look for ffmpeg progress info (frame, time, speed)
+                if "frame=" in decoded or "time=" in decoded:
+                    # Extract just the progress line
+                    lines = decoded.replace("\r", "\n").split("\n")
+                    for line in lines:
+                        if "frame=" in line or "time=" in line:
+                            _append_log(f"Progress: {line.strip()[:200]}")
                             break
-                        decoded = chunk.decode("utf-8", errors="replace")
-                        retry_output_chunks.append(decoded)
-                        now = datetime.now(timezone.utc)
-                        if (now - last_retry_progress).total_seconds() >= 30:
-                            if "frame=" in decoded or "time=" in decoded:
-                                lines = decoded.replace("\r", "\n").split("\n")
-                                for line in lines:
-                                    if "frame=" in line or "time=" in line:
-                                        _append_log(f"Retry progress: {line.strip()[:200]}")
-                                        break
-                                last_retry_progress = now
-    
-                    await process_retry.wait()
-                    output_retry = "".join(retry_output_chunks)
-    
-                    if process_retry.returncode != 0:
-                        _safe_unlink(temp_output)
-                        _append_log(f"Retry also failed for {video_path.name}")
-                        return {
-                            "success": False,
-                            "error": f"ffmpeg failed with code {process_retry.returncode} (retry without subs)",
-                            "output": output_retry[-2000:] if len(output_retry) > 2000 else output_retry,
-                            "duration_seconds": duration,
-                            "subtitle_fallback_attempted": True,
-                        }
-    
-                    _append_log(f"Retry succeeded without subtitles for {video_path.name}")
-                    ended_at = datetime.now(timezone.utc)
-                    duration = (ended_at - started_at).total_seconds()
-                    # Fall through to success path below
-                else:
-                    # If hardware accel failed, suggest fallback
-                    if hardware_accel and "Error" in output:
-                        _append_log("Hardware acceleration may not be available, try without it")
-    
+                    last_progress_log = now
+
+        await process.wait()
+        output = "".join(output_chunks)
+
+        ended_at = datetime.now(timezone.utc)
+        duration = (ended_at - started_at).total_seconds()
+
+        if process.returncode != 0:
+            # Clean up temp file (ignore errors on network filesystems)
+            _safe_unlink(temp_output)
+
+            _append_log(f"Transcode failed for {video_path.name}: exit code {process.returncode}")
+            # Log last 500 chars of output for debugging
+            if output:
+                _append_log(f"FFmpeg output: {output[-500:]}")
+
+            # Check if failure was due to subtitle conversion (bitmap subs like PGS/VOBSUB)
+            subtitle_error_indicators = [
+                "subtitle", "Subtitle", "mov_text", "codec not currently supported",
+                "Unknown encoder", "Encoder not found", "sub2video"
+            ]
+            is_subtitle_error = any(indicator in output for indicator in subtitle_error_indicators)
+
+            if is_subtitle_error:
+                _append_log("Subtitle conversion failed (likely bitmap subs), retrying without subtitles...")
+                # Remove the subtitle-related arguments properly
+                cmd_no_subs = []
+                skip_next = False
+                for i, c in enumerate(cmd):
+                    if skip_next:
+                        skip_next = False
+                        continue
+                    if c == "-map" and i + 1 < len(cmd) and cmd[i + 1] == "0:s?":
+                        skip_next = True
+                        continue
+                    if c == "-c:s":
+                        skip_next = True
+                        continue
+                    cmd_no_subs.append(c)
+
+                _append_log(f"Retry FFmpeg command: {' '.join(cmd_no_subs)}")
+
+                process_retry = await asyncio.create_subprocess_exec(
+                    *cmd_no_subs,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                    env={**os.environ},
+                )
+
+                # Stream retry output in real-time too
+                retry_output_chunks = []
+                last_retry_progress = datetime.now(timezone.utc)
+                while True:
+                    chunk = await process_retry.stdout.read(4096)
+                    if not chunk:
+                        break
+                    decoded = chunk.decode("utf-8", errors="replace")
+                    retry_output_chunks.append(decoded)
+                    now = datetime.now(timezone.utc)
+                    if (now - last_retry_progress).total_seconds() >= 30:
+                        if "frame=" in decoded or "time=" in decoded:
+                            lines = decoded.replace("\r", "\n").split("\n")
+                            for line in lines:
+                                if "frame=" in line or "time=" in line:
+                                    _append_log(f"Retry progress: {line.strip()[:200]}")
+                                    break
+                            last_retry_progress = now
+
+                await process_retry.wait()
+                output_retry = "".join(retry_output_chunks)
+
+                if process_retry.returncode != 0:
+                    _safe_unlink(temp_output)
+                    _append_log(f"Retry also failed for {video_path.name}")
                     return {
                         "success": False,
-                        "error": f"ffmpeg failed with code {process.returncode}",
-                        "output": output[-2000:] if len(output) > 2000 else output,
+                        "error": f"ffmpeg failed with code {process_retry.returncode} (retry without subs)",
+                        "output": output_retry[-2000:] if len(output_retry) > 2000 else output_retry,
                         "duration_seconds": duration,
+                        "subtitle_fallback_attempted": True,
                     }
-    
-            # Move temp to final
-            temp_output.rename(output_path)
-    
-            # Get output file info
-            output_size = output_path.stat().st_size
-            input_size = probe_result.get("size_bytes", 0)
-    
-            _append_log(f"Transcoded {video_path.name} in {duration:.1f}s "
-                       f"({input_size / 1024 / 1024:.1f}MB -> {output_size / 1024 / 1024:.1f}MB)")
-    
-            # Archive original if requested (moves to .originals/ folder, hidden from Jellyfin)
-            archived_path = None
-            if archive_original and video_path.exists():
-                archived_path = _archive_original(video_path)
-    
-                # If input was .mp4, rename output to take its place (remove _transcoded suffix)
-                if archived_path and video_path.suffix.lower() == ".mp4":
-                    final_path = video_path.parent / f"{video_path.stem}.mp4"
-                    if final_path != output_path and not final_path.exists():
-                        try:
-                            output_path.rename(final_path)
-                            _append_log(f"Renamed {output_path.name} -> {final_path.name}")
-                            output_path = final_path
-                        except OSError as e:
-                            _append_log(f"Warning: Could not rename to original name: {e}")
-    
-            _mark_as_compatible(output_path, was_transcoded=True, info=probe_result)
-    
-            # Save to history
-            history = _load_transcode_history()
-            history.append({
-                "input_file": str(video_path),
-                "output_file": str(output_path),
-                "archived_to": str(archived_path) if archived_path else None,
-                "started_at": started_at.isoformat(),
-                "duration_seconds": duration,
-                "input_size_bytes": input_size,
-                "output_size_bytes": output_size,
-                "video_transcoded": compat["needs_video_transcode"],
-                "audio_transcoded": compat["needs_audio_transcode"],
-                "remuxed": compat["needs_remux"],
-                "success": True,
-            })
-            _save_transcode_history(history)
-    
-            return {
-                "success": True,
-                "input_file": str(video_path),
-                "output_file": str(output_path),
-                "archived_to": str(archived_path) if archived_path else None,
-                "duration_seconds": duration,
-                "input_size_mb": round(input_size / 1024 / 1024, 2),
-                "output_size_mb": round(output_size / 1024 / 1024, 2),
-                "video_transcoded": compat["needs_video_transcode"],
-                "audio_transcoded": compat["needs_audio_transcode"],
-                "remuxed_only": compat["needs_remux"] and not (compat["needs_video_transcode"] or compat["needs_audio_transcode"]),
-            }
-    
-        except FileNotFoundError:
-            _append_log("ERROR: ffmpeg not found in PATH")
-            return {"success": False, "error": "ffmpeg not found in PATH"}
-        except OSError as e:
-            # Filesystem errors (network mount issues, disk full, etc.)
-            _append_log(f"ERROR: Filesystem error during transcode: {e}")
-            _safe_unlink(temp_output)
-            return {"success": False, "error": f"Filesystem error: {e}"}
-        except Exception as e:
-            _append_log(f"ERROR transcoding: {e}")
-            _safe_unlink(temp_output)
-            return {"success": False, "error": str(e)}
+
+                _append_log(f"Retry succeeded without subtitles for {video_path.name}")
+                ended_at = datetime.now(timezone.utc)
+                duration = (ended_at - started_at).total_seconds()
+                # Fall through to success path below
+            else:
+                # If hardware accel failed, suggest fallback
+                if hardware_accel and "Error" in output:
+                    _append_log("Hardware acceleration may not be available, try without it")
+
+                return {
+                    "success": False,
+                    "error": f"ffmpeg failed with code {process.returncode}",
+                    "output": output[-2000:] if len(output) > 2000 else output,
+                    "duration_seconds": duration,
+                }
+
+        # Move temp to final
+        temp_output.rename(output_path)
+
+        # Get output file info
+        output_size = output_path.stat().st_size
+        input_size = probe_result.get("size_bytes", 0)
+
+        _append_log(f"Transcoded {video_path.name} in {duration:.1f}s "
+                   f"({input_size / 1024 / 1024:.1f}MB -> {output_size / 1024 / 1024:.1f}MB)")
+
+        # Archive original if requested (moves to .originals/ folder, hidden from Jellyfin)
+        archived_path = None
+        if archive_original and video_path.exists():
+            archived_path = _archive_original(video_path)
+
+            # If input was .mp4, rename output to take its place (remove _transcoded suffix)
+            if archived_path and video_path.suffix.lower() == ".mp4":
+                final_path = video_path.parent / f"{video_path.stem}.mp4"
+                if final_path != output_path and not final_path.exists():
+                    try:
+                        output_path.rename(final_path)
+                        _append_log(f"Renamed {output_path.name} -> {final_path.name}")
+                        output_path = final_path
+                    except OSError as e:
+                        _append_log(f"Warning: Could not rename to original name: {e}")
+
+        _mark_as_compatible(output_path, was_transcoded=True, info=probe_result)
+
+        # Save to history
+        history = _load_transcode_history()
+        history.append({
+            "input_file": str(video_path),
+            "output_file": str(output_path),
+            "archived_to": str(archived_path) if archived_path else None,
+            "started_at": started_at.isoformat(),
+            "duration_seconds": duration,
+            "input_size_bytes": input_size,
+            "output_size_bytes": output_size,
+            "video_transcoded": compat["needs_video_transcode"],
+            "audio_transcoded": compat["needs_audio_transcode"],
+            "remuxed": compat["needs_remux"],
+            "success": True,
+        })
+        _save_transcode_history(history)
+
+        return {
+            "success": True,
+            "input_file": str(video_path),
+            "output_file": str(output_path),
+            "archived_to": str(archived_path) if archived_path else None,
+            "duration_seconds": duration,
+            "input_size_mb": round(input_size / 1024 / 1024, 2),
+            "output_size_mb": round(output_size / 1024 / 1024, 2),
+            "video_transcoded": compat["needs_video_transcode"],
+            "audio_transcoded": compat["needs_audio_transcode"],
+            "remuxed_only": compat["needs_remux"] and not (compat["needs_video_transcode"] or compat["needs_audio_transcode"]),
+        }
+
+    except FileNotFoundError:
+        _append_log("ERROR: ffmpeg not found in PATH")
+        return {"success": False, "error": "ffmpeg not found in PATH"}
+    except OSError as e:
+        # Filesystem errors (network mount issues, disk full, etc.)
+        _append_log(f"ERROR: Filesystem error during transcode: {e}")
+        _safe_unlink(temp_output)
+        return {"success": False, "error": f"Filesystem error: {e}"}
+    except Exception as e:
+        _append_log(f"ERROR transcoding: {e}")
+        _safe_unlink(temp_output)
+        return {"success": False, "error": str(e)}
 
 
 def find_videos_to_transcode(
@@ -812,30 +812,19 @@ def find_videos_to_transcode(
     else:
         pattern = "*"
 
-    try:
-        for file_path in directory.glob(pattern):
-            try:
-                if not file_path.is_file():
-                    continue
-                if file_path.suffix.lower() not in VIDEO_EXTENSIONS:
-                    continue
-                if file_path.name.startswith("."):
-                    continue
-                # Skip files that end with _chromium (our output files)
-                if file_path.stem.endswith("_chromium"):
-                    continue
-                if skip_processed and _is_already_processed(file_path):
-                    continue
-                videos.append(file_path)
-            except OSError as e:
-                # Skip individual files/directories with I/O errors (network filesystem issues)
-                _append_log(f"Warning: Skipping {file_path} due to I/O error: {e}")
-                continue
-    except OSError as e:
-        # Handle errors during the glob operation itself (e.g., permission denied on root directory)
-        _append_log(f"Warning: Error scanning {directory} with pattern {pattern}: {e}")
-        # Return whatever videos we found before the error
-        return sorted(videos)
+    for file_path in directory.glob(pattern):
+        if not file_path.is_file():
+            continue
+        if file_path.suffix.lower() not in VIDEO_EXTENSIONS:
+            continue
+        if file_path.name.startswith("."):
+            continue
+        # Skip files that end with _chromium (our output files)
+        if file_path.stem.endswith("_chromium"):
+            continue
+        if skip_processed and _is_already_processed(file_path):
+            continue
+        videos.append(file_path)
 
     return sorted(videos)
 

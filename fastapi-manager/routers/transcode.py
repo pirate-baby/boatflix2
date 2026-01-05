@@ -307,6 +307,7 @@ async def get_config():
         - hardware_acceleration: Available hardware encoders
         - media_base: Path to media directory
         - default settings for transcoding
+        - remote_transcode settings and status
     """
     config = transcode.check_transcode_config()
     config.update({
@@ -315,5 +316,18 @@ async def get_config():
         "transcode_audio_bitrate": settings.TRANSCODE_AUDIO_BITRATE,
         "transcode_hardware_accel": settings.TRANSCODE_HARDWARE_ACCEL,
         "transcode_archive_original": settings.TRANSCODE_ARCHIVE_ORIGINAL,
+        "remote_transcode_enabled": settings.REMOTE_TRANSCODE_ENABLED,
+        "remote_transcode_host": settings.REMOTE_TRANSCODE_HOST if settings.REMOTE_TRANSCODE_ENABLED else None,
     })
     return config
+
+
+@router.get("/remote/check")
+async def check_remote_host():
+    """Check remote transcoding host status and capabilities.
+
+    Returns:
+        Remote host connection status and available features
+    """
+    from services import remote_transcode
+    return await remote_transcode.check_remote_host()

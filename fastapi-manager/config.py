@@ -33,5 +33,13 @@ class Settings:
     YOUTUBE_SYNC_CRON: str = os.getenv("YOUTUBE_SYNC_CRON", "0 */6 * * *")  # Every 6 hours
     YOUTUBE_COOKIES_FILE: str = os.getenv("YOUTUBE_COOKIES_FILE", "/app/data/youtube_cookies.txt")
 
+    # Remote transcode settings (for using a more powerful machine over SSH)
+    REMOTE_TRANSCODE_ENABLED: bool = os.getenv("REMOTE_TRANSCODE_ENABLED", "false").lower() == "true"
+    REMOTE_TRANSCODE_HOST: str = os.getenv("REMOTE_TRANSCODE_HOST", "")
+    REMOTE_TRANSCODE_USER: str = os.getenv("REMOTE_TRANSCODE_USER", "")
+    REMOTE_TRANSCODE_SSH_KEY: str = os.getenv("REMOTE_TRANSCODE_SSH_KEY", "")  # Path to SSH private key
+    REMOTE_TRANSCODE_WORK_DIR: str = os.getenv("REMOTE_TRANSCODE_WORK_DIR", "/tmp/boatflix-transcode")
+    REMOTE_TRANSCODE_PORT: int = int(os.getenv("REMOTE_TRANSCODE_PORT", "22"))
+
 
 settings = Settings()
