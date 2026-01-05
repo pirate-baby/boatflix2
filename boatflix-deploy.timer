@@ -1,0 +1,11 @@
+[Unit]
+Description=Boatflix Auto-Deploy Timer
+Requires=boatflix-deploy.service
+
+[Timer]
+# Run every 2 minutes
+OnBootSec=1min
+OnUnitActiveSec=2min
+
+[Install]
+WantedBy=timers.target

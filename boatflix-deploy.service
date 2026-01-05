@@ -1,0 +1,19 @@
+[Unit]
+Description=Boatflix Auto-Deploy
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/pi/boatflix2
+ExecStart=/home/pi/boatflix2/deploy.sh
+User=pi
+Group=pi
+StandardOutput=append:/home/pi/boatflix2/deploy.log
+StandardError=append:/home/pi/boatflix2/deploy.log
+
+# Don't restart on failure
+Restart=no
+
+[Install]
+WantedBy=multi-user.target
