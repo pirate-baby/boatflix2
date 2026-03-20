@@ -227,6 +227,8 @@ def check_rclone_config() -> dict:
     result = {
         "rclone_installed": False,
         "rclone_version": None,
+        "remote": settings.RCLONE_REMOTE or None,
+        "bucket": settings.RCLONE_BUCKET or None,
         "remote_configured": bool(settings.RCLONE_REMOTE),
         "bucket_configured": bool(settings.RCLONE_BUCKET),
         "sync_enabled": settings.SYNC_ENABLED,
