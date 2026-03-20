@@ -9,9 +9,9 @@ from sqlalchemy import select
 
 from config import settings
 from database import SessionLocal
-from models.db import YouTubePlaylist, YouTubePlaylistItem, MediaType
+from models.db import YouTubePlaylist, YouTubePlaylistItem, Download, MediaType
 from models.youtube_simple import YouTubeItemStatus, DownloadType
-from models.download import MusicMetadata, MovieMetadata
+from models.download import MusicMetadata, MovieMetadata, DownloadStatus
 from services.youtube_extractor import extract_playlist_items
 from services.download_queue import download_queue
 
@@ -95,13 +95,64 @@ class YouTubeSyncSimple:
 
                 existing_video_ids = {item.youtube_video_id for item in existing_items}
 
+                # Sync playlist item statuses from their linked downloads
+                # and collect items that need to be re-queued
+                items_to_retry = []
+                for item in existing_items:
+                    if item.download_id:
+                        download = session.get(Download, item.download_id)
+                        if download:
+                            if download.status == DownloadStatus.COMPLETED.value:
+                                item.download_status = YouTubeItemStatus.COMPLETED.value
+                                item.downloaded_at = download.completed_at
+                                item.file_path = download.output_path
+                            elif download.status == DownloadStatus.FAILED.value:
+                                item.download_status = YouTubeItemStatus.FAILED.value
+                                items_to_retry.append(item)
+                            elif download.status == DownloadStatus.DOWNLOADING.value:
+                                item.download_status = YouTubeItemStatus.DOWNLOADING.value
+                        else:
+                            # Download record missing — needs retry
+                            if item.download_status != YouTubeItemStatus.COMPLETED.value:
+                                items_to_retry.append(item)
+                    elif item.download_status != YouTubeItemStatus.COMPLETED.value:
+                        # No download_id at all — needs retry
+                        items_to_retry.append(item)
+
+                    item.updated_at = datetime.now(timezone.utc)
+
+                if items_to_retry:
+                    logger.info(f"Re-queuing {len(items_to_retry)} failed/pending items for playlist: {playlist.title}")
+                    for item in items_to_retry:
+                        video_url = f"https://www.youtube.com/watch?v={item.youtube_video_id}"
+
+                        if playlist.download_type == DownloadType.AUDIO.value:
+                            media_type = MediaType.MUSIC
+                            metadata = MusicMetadata(
+                                artist=item.artist or "Unknown Artist",
+                                album=playlist.title,
+                                track=item.title,
+                            )
+                        else:
+                            media_type = MediaType.MOVIE
+                            metadata = MovieMetadata(title=item.title)
+
+                        job = download_queue.add_job(
+                            url=video_url,
+                            media_type=media_type,
+                            metadata=metadata,
+                            session=session,
+                        )
+                        item.download_id = job.id
+                        item.download_status = YouTubeItemStatus.PENDING.value
+
                 # Find new items (one-way sync - add only, never remove)
                 new_items = [
                     item for item in youtube_items
                     if item["video_id"] not in existing_video_ids
                 ]
 
-                if not new_items:
+                if not new_items and not items_to_retry:
                     logger.info(f"No new items found for playlist: {playlist.title} (YouTube has {len(youtube_items)} items, DB has {len(existing_items)} items)")
                     playlist.last_synced_at = datetime.now(timezone.utc)
                     session.commit()
@@ -163,7 +214,7 @@ class YouTubeSyncSimple:
 
                 session.commit()
 
-                logger.info(f"Queued {len(new_items)} downloads for playlist: {playlist.title}")
+                logger.info(f"Queued {len(new_items)} new + {len(items_to_retry)} retried downloads for playlist: {playlist.title}")
 
             except Exception as e:
                 logger.error(f"Error syncing playlist {playlist.title}: {e}")
