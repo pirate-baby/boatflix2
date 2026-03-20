@@ -13,6 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rsync \
     && rm -rf /var/lib/apt/lists/*
 
+# Install deno (required by yt-dlp for YouTube JS extraction)
+RUN curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh
+
 # Install rclone
 RUN curl -O https://downloads.rclone.org/rclone-current-linux-amd64.zip \
     && unzip rclone-current-linux-amd64.zip \
