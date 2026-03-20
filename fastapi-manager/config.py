@@ -33,6 +33,12 @@ class Settings:
     YOUTUBE_SYNC_CRON: str = os.getenv("YOUTUBE_SYNC_CRON", "0 */6 * * *")  # Every 6 hours
     YOUTUBE_COOKIES_FILE: str = os.getenv("YOUTUBE_COOKIES_FILE", "/app/data/youtube_cookies.txt")
 
+    # Scheduled batch transcode settings
+    # Runs on a cron schedule and transcodes all media until the stop hour
+    TRANSCODE_SCHEDULE_ENABLED: bool = os.getenv("TRANSCODE_SCHEDULE_ENABLED", "false").lower() == "true"
+    TRANSCODE_SCHEDULE_CRON: str = os.getenv("TRANSCODE_SCHEDULE_CRON", "0 2 * * *")  # 2 AM daily
+    TRANSCODE_SCHEDULE_STOP_HOUR: int = int(os.getenv("TRANSCODE_SCHEDULE_STOP_HOUR", "12"))  # Stop at noon
+
     # Remote transcode settings (for using a more powerful machine over SSH)
     REMOTE_TRANSCODE_ENABLED: bool = os.getenv("REMOTE_TRANSCODE_ENABLED", "false").lower() == "true"
     REMOTE_TRANSCODE_HOST: str = os.getenv("REMOTE_TRANSCODE_HOST", "")

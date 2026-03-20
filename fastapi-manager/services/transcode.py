@@ -995,6 +995,112 @@ async def transcode_directory(
     }
 
 
+async def scheduled_batch_transcode() -> dict:
+    """Batch transcode all media, running until the configured stop hour.
+
+    Scans Movies/ and Shows/ directories for incompatible videos.
+    Processes remux-only files first (fast), then full transcodes.
+    Checks the clock before starting each file and stops when the
+    time window closes.
+
+    Returns:
+        Dict with batch processing results
+    """
+    from datetime import datetime
+
+    stop_hour = settings.TRANSCODE_SCHEDULE_STOP_HOUR
+    media_base = Path(settings.MEDIA_BASE)
+    directories = [media_base / "Movies", media_base / "Shows"]
+
+    _append_log(f"Scheduled batch transcode started (stop at {stop_hour}:00 local time)")
+
+    # Gather all videos that need work across all directories
+    all_videos = []
+    for directory in directories:
+        if directory.exists():
+            videos = find_videos_to_transcode(directory, recursive=True)
+            all_videos.extend(videos)
+            _append_log(f"  Found {len(videos)} unprocessed videos in {directory.name}/")
+
+    if not all_videos:
+        _append_log("No videos need transcoding")
+        return {"success": True, "processed": 0, "skipped": 0, "failed": 0, "stopped_reason": "nothing_to_do"}
+
+    # Probe all videos and separate into remux-only vs full transcode
+    remux_queue: list[tuple[Path, dict, dict]] = []
+    transcode_queue: list[tuple[Path, dict, dict]] = []
+    skipped = 0
+
+    for video_path in all_videos:
+        if datetime.now().hour >= stop_hour:
+            _append_log(f"Stop hour {stop_hour}:00 reached during probe phase")
+            break
+
+        probe_result = await probe_video(video_path)
+        if not probe_result.get("success"):
+            _append_log(f"  Probe failed for {video_path.name}: {probe_result.get('error')}")
+            continue
+
+        compat = check_chromium_compatibility(probe_result)
+        if compat["compatible"]:
+            # Already compatible — mark it and move on
+            _mark_as_compatible(video_path, was_transcoded=False, info=probe_result)
+            skipped += 1
+            continue
+
+        if compat["needs_remux"] and not compat["needs_video_transcode"] and not compat["needs_audio_transcode"]:
+            remux_queue.append((video_path, probe_result, compat))
+        else:
+            transcode_queue.append((video_path, probe_result, compat))
+
+    _append_log(f"  Queue: {len(remux_queue)} remux-only, {len(transcode_queue)} full transcode, {skipped} already compatible")
+
+    # Process: remux-only first (fast), then full transcodes
+    processed = 0
+    failed = 0
+    ordered_queue = remux_queue + transcode_queue
+
+    for video_path, probe_result, compat in ordered_queue:
+        # Check time window before starting each file
+        now = datetime.now()
+        if now.hour >= stop_hour:
+            remaining = len(ordered_queue) - (processed + failed)
+            _append_log(f"Stop hour {stop_hour}:00 reached — {remaining} videos remaining for next run")
+            break
+
+        _append_log(f"Processing ({processed + failed + 1}/{len(ordered_queue)}): {video_path.name}")
+
+        result = await transcode_video(
+            video_path,
+            crf=settings.TRANSCODE_CRF,
+            preset=settings.TRANSCODE_PRESET,
+            audio_bitrate=settings.TRANSCODE_AUDIO_BITRATE,
+            hardware_accel=settings.TRANSCODE_HARDWARE_ACCEL,
+            archive_original=settings.TRANSCODE_ARCHIVE_ORIGINAL,
+        )
+
+        if result.get("success"):
+            if result.get("skipped"):
+                skipped += 1
+            else:
+                processed += 1
+        else:
+            failed += 1
+            _append_log(f"  Failed: {result.get('error', 'unknown')}")
+
+    stopped_reason = "time_window_closed" if datetime.now().hour >= stop_hour else "completed"
+    _append_log(f"Batch transcode finished: {processed} transcoded, {skipped} skipped, {failed} failed ({stopped_reason})")
+
+    return {
+        "success": True,
+        "processed": processed,
+        "skipped": skipped,
+        "failed": failed,
+        "stopped_reason": stopped_reason,
+        "total_queued": len(ordered_queue),
+    }
+
+
 def get_transcode_status() -> dict:
     """Get the status of transcoding processing.
 

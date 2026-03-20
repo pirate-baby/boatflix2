@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 from config import settings
 from routers import download, sync, organize, web, process, transcode, youtube_simple
 from services import rclone, pyscenedetect
+from services import transcode as transcode_service
 from services.download_queue import download_queue
 from services.youtube_sync_simple import youtube_sync_simple
 
@@ -93,6 +94,23 @@ async def scheduled_youtube_sync():
         logger.exception(f"Scheduled YouTube sync error: {e}")
 
 
+async def scheduled_batch_transcode():
+    """Run scheduled batch transcode job."""
+    logger.info("Starting scheduled batch transcode job")
+    try:
+        result = await transcode_service.scheduled_batch_transcode()
+        if result["success"]:
+            logger.info(
+                f"Scheduled batch transcode completed: "
+                f"{result['processed']} transcoded, {result['skipped']} skipped, "
+                f"{result['failed']} failed ({result['stopped_reason']})"
+            )
+        else:
+            logger.error(f"Scheduled batch transcode failed: {result.get('error', 'Unknown error')}")
+    except Exception as e:
+        logger.exception(f"Scheduled batch transcode error: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown tasks."""
@@ -153,6 +171,26 @@ async def lifespan(app: FastAPI):
             logger.error(f"Failed to configure YouTube sync scheduler: {e}")
     else:
         logger.info("YouTube sync scheduler disabled (YOUTUBE_SYNC_ENABLED=false)")
+
+    # Start batch transcode scheduler if configured
+    if settings.TRANSCODE_SCHEDULE_ENABLED:
+        try:
+            cron_kwargs = parse_cron_expression(settings.TRANSCODE_SCHEDULE_CRON)
+            scheduler.add_job(
+                scheduled_batch_transcode,
+                CronTrigger(**cron_kwargs),
+                id="batch_transcode",
+                name="Batch transcode (slow overnight)",
+                replace_existing=True,
+            )
+            logger.info(
+                f"Batch transcode scheduler configured: cron={settings.TRANSCODE_SCHEDULE_CRON}, "
+                f"stop_hour={settings.TRANSCODE_SCHEDULE_STOP_HOUR}:00"
+            )
+        except Exception as e:
+            logger.error(f"Failed to configure batch transcode scheduler: {e}")
+    else:
+        logger.info("Batch transcode scheduler disabled (TRANSCODE_SCHEDULE_ENABLED=false)")
 
     # Start the scheduler if any jobs were added
     if scheduler.get_jobs():
@@ -224,5 +262,8 @@ def scheduler_status():
         "running": scheduler.running,
         "sync_enabled": settings.SYNC_ENABLED,
         "sync_cron": settings.SYNC_CRON,
+        "batch_transcode_enabled": settings.TRANSCODE_SCHEDULE_ENABLED,
+        "batch_transcode_cron": settings.TRANSCODE_SCHEDULE_CRON,
+        "batch_transcode_stop_hour": settings.TRANSCODE_SCHEDULE_STOP_HOUR,
         "jobs": jobs,
     }
