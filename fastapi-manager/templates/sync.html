@@ -297,7 +297,7 @@
                         rclone is not installed. Install it to enable cloud sync functionality.
                     </p>
                 `;
-            } else if (!data.remote || !data.bucket) {
+            } else if (!data.remote_configured || !data.bucket_configured) {
                 html += `
                     <p class="warning-text">
                         Configure RCLONE_REMOTE and RCLONE_BUCKET environment variables to enable sync.
