@@ -16,11 +16,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install deno (required by yt-dlp for YouTube JS extraction)
 RUN curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh
 
-# Install rclone
-RUN curl -O https://downloads.rclone.org/rclone-current-linux-amd64.zip \
-    && unzip rclone-current-linux-amd64.zip \
-    && cp rclone-*-linux-amd64/rclone /usr/local/bin/ \
-    && rm -rf rclone-*-linux-amd64* \
+# Install rclone (architecture-aware)
+RUN ARCH=$(dpkg --print-architecture) \
+    && curl -O https://downloads.rclone.org/rclone-current-linux-${ARCH}.zip \
+    && unzip rclone-current-linux-${ARCH}.zip \
+    && cp rclone-*-linux-${ARCH}/rclone /usr/local/bin/ \
+    && rm -rf rclone-*-linux-${ARCH}* \
     && chmod +x /usr/local/bin/rclone
 
 # Install uv for fast package installation
