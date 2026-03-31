@@ -19,19 +19,19 @@ services:
       - media_network
     restart: unless-stopped
 
-  ersatztv:
-    image: jasongdove/ersatztv:6562d616fb8b2043d0bd9bbc9699847a9b18f5e5
-    container_name: ersatztv
-    environment:
-      - TZ=${TZ}
-    volumes:
-      - ./configs/ersatztv:/config
-      - ${MEDIA_PATH}:/mnt/media
-    ports:
-      - "8409:8409"
-    networks:
-      - media_network
-    restart: unless-stopped
+  # ersatztv:
+  #   image: jasongdove/ersatztv:6562d616fb8b2043d0bd9bbc9699847a9b18f5e5
+  #   container_name: ersatztv
+  #   environment:
+  #     - TZ=${TZ}
+  #   volumes:
+  #     - ./configs/ersatztv:/config
+  #     - ${MEDIA_PATH}:/mnt/media
+  #   ports:
+  #     - "8409:8409"
+  #   networks:
+  #     - media_network
+  #   restart: unless-stopped
 
   # qBittorrent with built-in VPN (ARM64 compatible)
   # Includes tinyproxy on port 8118 for HTTP proxy through VPN (used by Jellyfin OpenSubtitles)
@@ -120,7 +120,6 @@ services:
       - "8000:8000"
     depends_on:
       - jellyfin
-      - ersatztv
 
 networks:
   media_network:
