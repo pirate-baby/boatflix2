@@ -100,7 +100,7 @@ async def get_pending_count():
     downloads_path = Path(f"{settings.MEDIA_BASE}/Downloads")
 
     if not downloads_path.exists():
-        return JSONResponse({"count": 0, "html": "<p class='muted'>Downloads folder not found</p>"})
+        return HTMLResponse("<p class='muted'>Downloads folder not found</p>")
 
     all_items = [item for item in downloads_path.iterdir() if not item.name.startswith(".")]
     visible_items = [item for item in all_items if not is_companion_file(item, all_items)]
@@ -111,7 +111,7 @@ async def get_pending_count():
     else:
         html = f"<p><strong>{count}</strong> item{'s' if count != 1 else ''} awaiting organization</p>"
 
-    return JSONResponse({"count": count, "html": html})
+    return HTMLResponse(html)
 
 
 @router.get("/api/sync-summary")
@@ -120,7 +120,7 @@ async def get_sync_summary():
     from services.rclone import get_sync_status
 
     try:
-        status = await get_sync_status()
+        status = get_sync_status()
 
         if status.get("is_syncing"):
             html = "<p><span class='badge badge-primary'>Syncing...</span></p>"
@@ -133,9 +133,9 @@ async def get_sync_summary():
         else:
             html = "<p class='muted'>Never synced</p>"
 
-        return JSONResponse({"html": html, **status})
+        return HTMLResponse(html)
     except Exception as e:
-        return JSONResponse({"html": f"<p class='error'>Error: {str(e)}</p>"})
+        return HTMLResponse(f"<p class='error'>Error: {str(e)}</p>")
 
 
 @router.get("/api/files")
