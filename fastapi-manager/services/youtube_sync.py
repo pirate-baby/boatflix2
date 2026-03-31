@@ -401,7 +401,7 @@ class YouTubeSyncService:
                 metadata = MusicMetadata(
                     artist=item.artist or "Unknown Artist",
                     track=item.title,
-                    album=playlist.title if not playlist.is_liked_songs else None,
+                    playlist=playlist.title if not playlist.is_liked_songs else None,
                 )
 
                 # Add to download queue (pass session to avoid nested session lock)

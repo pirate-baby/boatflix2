@@ -39,6 +39,10 @@ class Settings:
     TRANSCODE_SCHEDULE_CRON: str = os.getenv("TRANSCODE_SCHEDULE_CRON", "0 2 * * *")  # 2 AM daily
     TRANSCODE_SCHEDULE_STOP_HOUR: int = int(os.getenv("TRANSCODE_SCHEDULE_STOP_HOUR", "12"))  # Stop at noon
 
+    # Jellyfin API settings (for playlist management and library refresh)
+    JELLYFIN_URL: str = os.getenv("JELLYFIN_URL", "http://jellyfin:8096")
+    JELLYFIN_API_KEY: str | None = os.getenv("JELLYFIN_API_KEY")
+
     # Remote transcode settings (for using a more powerful machine over SSH)
     REMOTE_TRANSCODE_ENABLED: bool = os.getenv("REMOTE_TRANSCODE_ENABLED", "false").lower() == "true"
     REMOTE_TRANSCODE_HOST: str = os.getenv("REMOTE_TRANSCODE_HOST", "")

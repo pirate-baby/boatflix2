@@ -24,6 +24,7 @@ from models.download import (
     DownloadHistoryResponse,
 )
 from services.ytdlp import ytdlp_service
+from services.jellyfin import jellyfin_client
 
 logger = logging.getLogger(__name__)
 
@@ -244,6 +245,15 @@ class DownloadQueueManager:
             )
             logger.info(f"Download completed: {job.id} -> {output_path}")
 
+            # Add to Jellyfin playlist if this is a playlist track
+            if (
+                job.media_type == MediaType.MUSIC
+                and isinstance(job.metadata, MusicMetadata)
+                and job.metadata.playlist
+                and output_path
+            ):
+                await self._add_to_jellyfin_playlist(job.metadata.playlist, output_path)
+
         except Exception as e:
             logger.error(f"Download failed: {job.id} - {e}")
             self.update_job(
@@ -253,6 +263,16 @@ class DownloadQueueManager:
             )
         finally:
             self._current_job_id = None
+
+    async def _add_to_jellyfin_playlist(self, playlist_name: str, file_path: str):
+        """Add a downloaded track to a Jellyfin playlist."""
+        try:
+            playlist_id = await jellyfin_client.get_or_create_playlist(playlist_name)
+            if playlist_id:
+                await jellyfin_client.add_item_to_playlist(playlist_id, file_path)
+        except Exception as e:
+            # Non-fatal — track is downloaded, just not in Jellyfin playlist yet
+            logger.warning(f"Failed to add to Jellyfin playlist '{playlist_name}': {e}")
 
     async def start_worker(self):
         """Start the background worker to process downloads one at a time."""

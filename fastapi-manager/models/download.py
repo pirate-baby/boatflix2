@@ -47,6 +47,7 @@ class MusicMetadata(BaseModel):
     track: str
     track_number: Optional[int] = None
     release_year: Optional[int] = None
+    playlist: Optional[str] = None
 
 
 class CommercialMetadata(BaseModel):

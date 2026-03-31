@@ -9,6 +9,10 @@ from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import urlparse, unquote
 
+from mutagen.easyid3 import EasyID3
+from mutagen.id3 import ID3NoHeaderError
+from mutagen.mp3 import MP3
+
 from config import settings
 from models.download import (
     MediaType,
@@ -393,17 +397,27 @@ class YtdlpService:
         elif media_type == MediaType.MUSIC:
             assert isinstance(metadata, MusicMetadata)
             artist = self._sanitize_filename(metadata.artist)
-            album = self._sanitize_filename(metadata.album or "Singles")
-            year = f" ({metadata.release_year})" if metadata.release_year else ""
             track_num = f"{metadata.track_number:02d} - " if metadata.track_number else ""
             track = self._sanitize_filename(metadata.track)
-            return str(
-                self.media_path
-                / "Music"
-                / artist
-                / f"{album}{year}"
-                / f"{track_num}{track}.%(ext)s"
-            )
+            if metadata.album:
+                # Real album — use album subfolder
+                album = self._sanitize_filename(metadata.album)
+                year = f" ({metadata.release_year})" if metadata.release_year else ""
+                return str(
+                    self.media_path
+                    / "Music"
+                    / artist
+                    / f"{album}{year}"
+                    / f"{track_num}{track}.%(ext)s"
+                )
+            else:
+                # No album (e.g. playlist tracks) — flat under artist
+                return str(
+                    self.media_path
+                    / "Music"
+                    / artist
+                    / f"{track_num}{track}.%(ext)s"
+                )
 
         else:  # COMMERCIAL
             assert isinstance(metadata, CommercialMetadata)
@@ -413,6 +427,39 @@ class YtdlpService:
             return str(
                 self.media_path / "Commercials" / f"{filename}.%(ext)s"
             )
+
+    def _write_id3_tags(self, file_path: str, metadata: MusicMetadata) -> None:
+        """Write ID3 tags to a downloaded MP3 file.
+
+        Jellyfin reads embedded metadata to determine artist, title, album, etc.
+        This ensures tracks are properly organized regardless of folder structure.
+        """
+        if not file_path.lower().endswith(".mp3"):
+            return
+
+        try:
+            try:
+                audio = EasyID3(file_path)
+            except ID3NoHeaderError:
+                audio = MP3(file_path)
+                audio.add_tags()
+                audio.save()
+                audio = EasyID3(file_path)
+
+            audio["artist"] = metadata.artist
+            audio["title"] = metadata.track
+            if metadata.album:
+                audio["album"] = metadata.album
+            if metadata.track_number:
+                audio["tracknumber"] = str(metadata.track_number)
+            if metadata.release_year:
+                audio["date"] = str(metadata.release_year)
+            # Do NOT set album from playlist name — that's the whole bug we're fixing
+
+            audio.save()
+            logger.info(f"Wrote ID3 tags to {file_path}: artist={metadata.artist}, title={metadata.track}")
+        except Exception as e:
+            logger.warning(f"Failed to write ID3 tags to {file_path}: {e}")
 
     def _sanitize_filename(self, name: str) -> str:
         """Sanitize a string for use in filenames."""
@@ -521,7 +568,13 @@ class YtdlpService:
             if files:
                 downloaded_file = str(max(files, key=lambda f: f.stat().st_mtime))
 
-        return downloaded_file or str(output_dir)
+        final_path = downloaded_file or str(output_dir)
+
+        # Write ID3 tags to music files so Jellyfin reads proper metadata
+        if media_type == MediaType.MUSIC and isinstance(metadata, MusicMetadata):
+            self._write_id3_tags(final_path, metadata)
+
+        return final_path
 
 
 # Singleton instance

@@ -130,8 +130,8 @@ class YouTubeSyncSimple:
                             media_type = MediaType.MUSIC
                             metadata = MusicMetadata(
                                 artist=item.artist or "Unknown Artist",
-                                album=playlist.title,
                                 track=item.title,
+                                playlist=playlist.title,
                             )
                         else:
                             media_type = MediaType.MOVIE
@@ -187,8 +187,8 @@ class YouTubeSyncSimple:
                         media_type = MediaType.MUSIC
                         metadata = MusicMetadata(
                             artist=item.get("artist", "Unknown Artist"),
-                            album=playlist.title,  # Use playlist title as album
                             track=item["title"],
+                            playlist=playlist.title,
                         )
                     else:
                         media_type = MediaType.MOVIE
