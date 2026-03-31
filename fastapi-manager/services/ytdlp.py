@@ -518,11 +518,22 @@ class YtdlpService:
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
+            stderr=asyncio.subprocess.PIPE,
         )
 
         downloaded_file = None
         current_progress = 0.0
+        stderr_lines = []
+
+        # Read stdout and stderr concurrently
+        async def read_stderr():
+            while True:
+                line = await process.stderr.readline()
+                if not line:
+                    break
+                stderr_lines.append(line.decode().strip())
+
+        stderr_task = asyncio.create_task(read_stderr())
 
         while True:
             line = await process.stdout.readline()
@@ -553,10 +564,14 @@ class YtdlpService:
                 if progress_callback:
                     progress_callback(99.0, "Processing")
 
+        await stderr_task
         await process.wait()
 
         if process.returncode != 0:
-            raise RuntimeError(f"Download failed with return code {process.returncode}")
+            # Include stderr for a useful error message
+            stderr_text = "\n".join(stderr_lines).strip()
+            error_msg = stderr_text or f"return code {process.returncode}"
+            raise RuntimeError(f"Download failed: {error_msg}")
 
         if progress_callback:
             progress_callback(100.0, "Completed")

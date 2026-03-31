@@ -77,6 +77,22 @@ def _run_migrations():
                 logger.info("Successfully dropped old OAuth-based YouTube tables")
                 logger.info("New tables will be created automatically with correct schema")
 
+            else:
+                # Check if fail_count column exists
+                has_fail_count = False
+                cursor.execute("PRAGMA table_info(youtube_playlist_items)")
+                item_columns = cursor.fetchall()
+                for col in item_columns:
+                    if col[1] == 'fail_count':
+                        has_fail_count = True
+                        break
+
+                if not has_fail_count:
+                    logger.info("Running migration: Adding fail_count column to youtube_playlist_items")
+                    cursor.execute("ALTER TABLE youtube_playlist_items ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0")
+                    conn.commit()
+                    logger.info("Successfully added fail_count column")
+
     except Exception as e:
         logger.error(f"Migration failed: {e}")
         conn.rollback()

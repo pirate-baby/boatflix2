@@ -97,6 +97,7 @@ class YouTubeSyncSimple:
 
                 # Sync playlist item statuses from their linked downloads
                 # and collect items that need to be re-queued
+                MAX_RETRIES = 3
                 items_to_retry = []
                 for item in existing_items:
                     if item.download_id:
@@ -108,16 +109,25 @@ class YouTubeSyncSimple:
                                 item.file_path = download.output_path
                             elif download.status == DownloadStatus.FAILED.value:
                                 item.download_status = YouTubeItemStatus.FAILED.value
-                                items_to_retry.append(item)
+                                item.fail_count = (item.fail_count or 0) + 1
+                                if item.fail_count < MAX_RETRIES:
+                                    items_to_retry.append(item)
+                                else:
+                                    logger.info(
+                                        f"Skipping retry for '{item.title}' — failed {item.fail_count} times "
+                                        f"(last error: {download.error})"
+                                    )
                             elif download.status == DownloadStatus.DOWNLOADING.value:
                                 item.download_status = YouTubeItemStatus.DOWNLOADING.value
                         else:
                             # Download record missing — needs retry
                             if item.download_status != YouTubeItemStatus.COMPLETED.value:
-                                items_to_retry.append(item)
+                                if (item.fail_count or 0) < MAX_RETRIES:
+                                    items_to_retry.append(item)
                     elif item.download_status != YouTubeItemStatus.COMPLETED.value:
                         # No download_id at all — needs retry
-                        items_to_retry.append(item)
+                        if (item.fail_count or 0) < MAX_RETRIES:
+                            items_to_retry.append(item)
 
                     item.updated_at = datetime.now(timezone.utc)
 

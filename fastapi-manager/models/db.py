@@ -142,6 +142,7 @@ class YouTubePlaylistItem(Base):
     download_status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pending"
     )
+    fail_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     download_id: Mapped[Optional[str]] = mapped_column(
         String(36), ForeignKey("downloads.id"), nullable=True
     )
