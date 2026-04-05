@@ -11,10 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     openssh-client \
     rsync \
+    nodejs \
     && rm -rf /var/lib/apt/lists/*
-
-# Install deno (required by yt-dlp for YouTube JS extraction)
-RUN curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh
 
 # Install rclone (architecture-aware)
 RUN ARCH=$(dpkg --print-architecture) \
