@@ -1,0 +1,13 @@
+[Unit]
+Description=Keep the Bluetooth audio receiver connected
+After=bluetooth.service bluealsa.service
+Wants=bluetooth.service bluealsa.service
+
+[Service]
+Environment=BT_AUDIO_MAC=9C:4E:4E:80:3C:02
+ExecStart=/usr/local/sbin/bt-audio-autoconnect
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

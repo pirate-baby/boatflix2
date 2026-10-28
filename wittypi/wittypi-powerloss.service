@@ -1,0 +1,12 @@
+[Unit]
+Description=Shut down when Witty Pi switches to battery
+After=wittypi.service
+
+[Service]
+Environment=WITTYPI_LOG=/home/boatflix/wittypi/wittyPi.log
+ExecStart=/usr/local/sbin/wittypi-powerloss
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

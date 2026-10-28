@@ -1,0 +1,27 @@
+#!/bin/bash
+# Keep boatflix connected to the Bluetooth audio receiver. The receiver can be
+# power-cycled or switched to its AUX input and boatflix can reboot; whenever
+# the receiver isn't connected with a BlueALSA A2DP PCM, ask BlueZ to connect.
+# BlueZ only reconnects on its own after link loss, not after either side
+# restarts, hence the poll. Only state changes are logged.
+MAC=${BT_AUDIO_MAC:?set BT_AUDIO_MAC}
+INTERVAL=${INTERVAL:-15}
+PCM=/org/bluealsa/hci0/dev_${MAC//:/_}/a2dpsrc/sink
+
+up() {
+  bluetoothctl info "$MAC" 2>/dev/null | grep -q "Connected: yes" &&
+    bluealsa-cli list-pcms 2>/dev/null | grep -qx "$PCM"
+}
+
+state=unknown
+while true; do
+  if up; then
+    [ "$state" = up ] || echo "$MAC connected"
+    state=up
+  else
+    [ "$state" = down ] || echo "$MAC not connected, retrying every ${INTERVAL}s"
+    state=down
+    timeout 20 bluetoothctl connect "$MAC" >/dev/null 2>&1
+  fi
+  sleep "$INTERVAL"
+done
