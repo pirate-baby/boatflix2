@@ -1,0 +1,11 @@
+[Unit]
+Description=Recover salon display after HDMI hotplug
+After=lightdm.service
+
+[Service]
+ExecStart=/usr/local/sbin/hdmi-watchdog
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target

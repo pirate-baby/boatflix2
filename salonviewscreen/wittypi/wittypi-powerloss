@@ -1,0 +1,67 @@
+#!/bin/bash
+# Shut down cleanly as soon as the Witty Pi 4 L3V7 switches to battery.
+# Register 7 (I2C_POWER_MODE): 0 = USB 5V, 2 = battery (firmware: Vin < 4.35V).
+# Reading register 7 makes the firmware refresh it before answering.
+# The mode flag alone can read battery while USB is present (seen with a
+# depleted battery charging hard), so the charger's status pins must also
+# show no input: CHRG (GPIO5) and STDBY (GPIO6) are both high without USB.
+# On battery: drop to a low-power state (one core at minimum clock, network
+# off) to avoid current spikes the battery can't supply, kill the kiosk and
+# music services, then force a poweroff. Readings are logged and synced each
+# second so the last ones before power dies survive on disk.
+BUS=1
+ADDR=0x08
+INTERVAL=0.5    # seconds between checks
+CONFIRM=60      # consecutive readings (30s): ride out load-spike sags on battery
+APP_UNITS="lightdm cups cups-browsed"
+
+reg() { printf "%d" "$(i2cget -y "$BUS" "$ADDR" "$1" 2>/dev/null || echo 0)"; }
+volts() { printf "%d.%02d" "$(reg "$1")" "$(reg "$2")"; }
+charger() { echo "$(gpio -g read 5)$(gpio -g read 6)"; }   # "11" = no USB input
+readings() { echo "Vin=$(volts 1 2)V Vout=$(volts 3 4)V Iout=$(volts 5 6)A CHRG/STDBY=$(charger)"; }
+
+low_power() {
+  for c in /sys/devices/system/cpu/cpu[1-9]*/online; do [ -e "$c" ] && echo 0 > "$c"; done
+  echo powersave > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+  for n in eth0 wlan0; do ip link set "$n" down 2>/dev/null; done
+}
+
+count=0
+ignored=0
+while true; do
+  mode=$(i2cget -y "$BUS" "$ADDR" 7 2>/dev/null)
+  if [ "$mode" = "0x02" ] && [ "$(charger)" = "11" ]; then
+    count=$((count + 1))
+    ignored=0
+    if [ "$count" -ge "$CONFIRM" ]; then
+      low_power
+      echo "USB 5V lost, low-power mode on, shutting down $(readings)"
+      echo "[$(date '+%F %T')] wittypi-powerloss: USB 5V lost, shutting down" >> "$WITTYPI_LOG"
+      journalctl --sync
+      # Killing processes is safe for their data (unlike power loss); don't let
+      # the desktop/kiosk teardown eat the battery window.
+      timeout 2 systemctl stop $APP_UNITS || systemctl kill -s KILL $APP_UNITS
+      echo "apps stopped $(readings)"
+      sync
+      journalctl --sync
+      # Services are already dealt with: --force skips orderly unit teardown but
+      # still kills processes, unmounts/remounts read-only, and syncs.
+      systemctl poweroff --force
+      start=$SECONDS
+      while true; do
+        echo "shutdown +$((SECONDS - start))s $(readings)"
+        journalctl --sync 2>/dev/null
+        sleep 1
+      done
+    fi
+  else
+    if [ "$mode" = "0x02" ] && [ "$ignored" = 0 ]; then
+      echo "ignoring battery mode flag, charger still sees USB $(readings)"
+      ignored=1
+    elif [ "$mode" != "0x02" ]; then
+      ignored=0
+    fi
+    count=0
+  fi
+  sleep "$INTERVAL"
+done

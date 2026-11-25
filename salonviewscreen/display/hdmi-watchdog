@@ -1,0 +1,39 @@
+#!/bin/bash
+# Re-light the salon display after an HDMI hotplug (monitor reset / signal drop).
+# Step 1: force a fresh modeset on the output via wlr-randr.
+# Step 2: if the vc4 HVS "stop channel" warning fired during the dropout (the
+#         signature of the real blue-screen events), restart lightdm too.
+CONN=/sys/class/drm/card1-HDMI-A-2
+OUT=HDMI-A-2
+KIOSK_USER=salonviewscreen
+RESTART_STAMP=/run/hdmi-watchdog.last-restart
+MIN_RESTART_GAP=600
+
+uid=$(id -u "$KIOSK_USER")
+wl() { runuser -u "$KIOSK_USER" -- env WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/$uid wlr-randr "$@"; }
+
+drop_ts=$(date '+%Y-%m-%d %H:%M:%S')
+udevadm monitor --kernel --subsystem-match=drm | while read -r line; do
+  [[ $line == *change* ]] || continue
+  ts=$(date '+%Y-%m-%d %H:%M:%S' -d '-15 sec')
+  while read -r -t 5 _; do :; done        # debounce the burst of hotplug events
+  status=$(cat "$CONN/status")
+  echo "hotplug: $OUT $status"
+  if [[ $status != connected ]]; then drop_ts=$ts; continue; fi
+  [[ -z $drop_ts ]] && drop_ts=$ts
+
+  wl --output "$OUT" --off; sleep 1; wl --output "$OUT" --on
+  echo "re-enabled $OUT: $(wl | grep -m1 Enabled | xargs)"
+
+  if journalctl -k --since "$drop_ts" --no-pager -q | grep -q vc4_hvs_stop_channel; then
+    last=$(cat "$RESTART_STAMP" 2>/dev/null || echo 0)
+    if (( $(date +%s) - last >= MIN_RESTART_GAP )); then
+      echo "vc4 HVS stall seen since $drop_ts, restarting lightdm"
+      date +%s > "$RESTART_STAMP"
+      systemctl restart lightdm
+    else
+      echo "vc4 HVS stall seen but lightdm restarted <${MIN_RESTART_GAP}s ago, skipping"
+    fi
+  fi
+  drop_ts=
+done
