@@ -298,6 +298,7 @@ class Hub:
 async def main(cfg_path):
     cfg = load_config(cfg_path)
     hub = Hub(cfg)
+    tasks = []
     try:
         hub.relay.off()
         await hub.serve_http()
@@ -308,11 +309,16 @@ async def main(cfg_path):
         tasks = [asyncio.create_task(c) for c in
                  (hub.signalk_loop(), hub.float_loop(), hub.resync_tick())]
         waiter = asyncio.create_task(stop.wait())
-        done, _ = await asyncio.wait(tasks + [waiter], return_when=asyncio.FIRST_COMPLETED)
+        tasks.append(waiter)
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         for t in done:
             if t is not waiter and t.exception():
                 raise t.exception()
     finally:
+        # Stop everything that touches the relay before releasing it.
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         hub.relay.off()
         hub.relay.close()
         log.info("relay off, exiting")
