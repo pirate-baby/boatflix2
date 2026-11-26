@@ -18,6 +18,12 @@ the anchor alarm.
 
 ## Audio server
 
+audiopi is wired only. Wi-Fi and Bluetooth are off in firmware
+(`dtoverlay=disable-wifi` and `dtoverlay=disable-bt` at the end of
+`/boot/firmware/config.txt`) and `bluetooth.service` is disabled. With Wi-Fi
+up, `audiopi.local` also resolved to the Wi-Fi address, clients streamed over
+it, and the audio went choppy.
+
 PipeWire runs as the `audiopi` user (`loginctl enable-linger audiopi`) and
 plays through the 3.5mm jack into the stereo's RCA input, via an RCA ground
 loop isolator (the jack picks up the boat's ground noise without it).
