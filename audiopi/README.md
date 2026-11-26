@@ -11,6 +11,8 @@ the anchor alarm.
 | `alarm/audiopi-alarm.service` | `/etc/systemd/system/audiopi-alarm.service` |
 | `alarm/config.example.toml` | `/etc/audiopi-alarm/config.toml` (root:audiopi-alarm 0640; add the Signal K token) |
 | `alarm/avnav-klaxon` | on each plotter: `/usr/local/bin/avnav-klaxon` (0755) |
+| `volume/audiopi-volume.py` | `/usr/local/sbin/audiopi-volume` (0755) |
+| `volume/audiopi-volume.service` | `/etc/systemd/system/audiopi-volume.service` |
 
 ## Audio server
 
@@ -22,6 +24,12 @@ PulseAudio protocol on tcp/4713: boatflix's MPD (`../audio/`) and
 salonviewscreen (`../salonviewscreen/`).
 
 Test from another machine: `PULSE_SERVER=tcp:audiopi.local:4713 paplay file.wav`.
+
+**Volume page:** http://audiopi.local/ has a master slider and mute for the
+stereo, and a slider and mute for each connected source (boatflix's MPD,
+salonviewscreen). It is a separate service from the alarm, running as the
+`audiopi` user so `pactl` reaches its PipeWire session. Volumes are capped at
+100%. LAN only, no auth.
 
 ## Klaxon
 
