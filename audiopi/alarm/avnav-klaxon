@@ -1,0 +1,23 @@
+#!/bin/sh
+# AvNav alarm command for the anchor alarm: sound the Klaxon on audiopi.
+# Installed on the plotters at /usr/local/bin/avnav-klaxon and configured in
+# avnav_server.xml as <Command name="klaxon" command="/usr/local/bin/avnav-klaxon" repeat="1"/>
+# with <Alarm name="anchor" command="klaxon"/>.
+#
+# AvNav starts this when the alarm goes off and SIGTERMs its process group when
+# the alarm clears. Re-send "on" every 5 s: audiopi drops an alarm that isn't
+# refreshed within 30 s, so a lost "off" can't leave the Klaxon on.
+# AvNav passes a sound file argument; it's ignored.
+URL=${AUDIOPI_ALARM_URL:-http://audiopi.local:8080/alarm/anchor}
+
+off() {
+  curl -s -m 5 -X POST -d off "$URL" >/dev/null
+  exit 0
+}
+trap off TERM INT HUP
+
+while :; do
+  curl -s -m 5 -X POST -d on "$URL" >/dev/null
+  sleep 5 &
+  wait $!
+done

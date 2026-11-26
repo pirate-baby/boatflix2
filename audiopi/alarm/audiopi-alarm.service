@@ -1,0 +1,18 @@
+[Unit]
+Description=audiopi alarm hub (Klaxon relay, bilge float, Signal K)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=audiopi-alarm
+Group=audiopi-alarm
+SupplementaryGroups=gpio
+ExecStart=/usr/bin/python3 -u /usr/local/sbin/audiopi-alarm /etc/audiopi-alarm/config.toml
+# lgpio drops notification FIFOs in the working directory.
+RuntimeDirectory=audiopi-alarm
+WorkingDirectory=/run/audiopi-alarm
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,43 @@
+# /etc/audiopi-alarm/config.toml  (root:audiopi-alarm, mode 0640: holds tokens)
+
+relay_pin = 5              # BCM; Waveshare Relay Board (B) channel 1, active low
+debounce = 0.5             # seconds a float reading must hold before it counts
+resync_window = 3.0        # seconds to rebuild the alarm list after reconnecting
+http_alarm_ttl = 30        # an HTTP "on" lapses unless re-sent within this many seconds
+
+# The ONLY alarms that may close the Klaxon relay. Anything not listed here is
+# ignored (HTTP: refused with 403). The bilge float sounds the Klaxon through
+# its own hardwired path, so it is not listed.
+[klaxon]
+http_alarms = ["anchor"]   # AvNav anchor alarm: POST /alarm/anchor on|off
+signalk_paths = []         # exact notification paths, e.g. "notifications.navigation.anchor"
+
+[http]
+bind = "0.0.0.0"
+port = 8080
+
+# Tried in order, round robin, until one connects. Only one plotter is powered
+# at a time. Each server issues its own device token: approve audiopi's access
+# request in each plotter's admin UI (Security > Access Requests).
+[[signalk]]
+url = "http://openplotter.local:3000"
+token = ""
+
+# [[signalk]]
+# url = "http://<second plotter>:3000"
+# token = ""
+
+[[floats]]
+name = "forward"
+pin = 27                   # input relay contact pulls it to GND on high water
+path = "notifications.bilge.forward"
+message = "High water in the forward bilge"
+message_clear = "Forward bilge float clear"
+
+[[floats]]
+name = "aft"
+pin = 17                   # nothing wired yet
+enabled = false
+path = "notifications.bilge.aft"
+message = "High water in the aft bilge"
+message_clear = "Aft bilge float clear"
