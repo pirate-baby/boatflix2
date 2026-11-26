@@ -12,7 +12,8 @@ named in the config's [klaxon] allowlist (and not silenced):
 Nothing else sounds it: not other Signal K notifications, not a missing
 plotter, not the floats.
 
-Float switches are published to Signal K as notifications. They never drive
+Float switches are published to Signal K as notifications (emergency when
+high; deleted, i.e. null, when clear). They never drive
 the relay: the float sounds the Klaxon through its own hardwired path.
 
 HTTP API (LAN):
@@ -62,7 +63,7 @@ class Hub:
         self.relay = OutputDevice(cfg["relay_pin"], active_high=False, initial_value=False)
         self.floats = [
             {**f, "button": Button(f["pin"], pull_up=True, bounce_time=None),
-             "state": None, "pending": None, "since": 0.0}
+             "state": None, "pending": None, "since": 0.0, "published": None}
             for f in cfg["floats"] if f.get("enabled", True)
         ]
         self.own_paths = {f["path"] for f in cfg["floats"]}
@@ -123,20 +124,31 @@ class Hub:
         return not (value.get("status") or {}).get("silenced", False)
 
     def float_delta(self, f):
-        on = f["state"] == "high"
-        value = {
-            "state": "emergency" if on else "normal",
-            "method": ["visual", "sound"] if on else [],
-            "message": f["message"] if on else f["message_clear"],
-        }
+        # Clear by deleting the notification (null), not with state "normal":
+        # AvNav shows any notification that has a value as an alarm.
+        value = None
+        if f["state"] == "high":
+            value = {"state": "emergency", "method": ["visual", "sound"],
+                     "message": f["message"]}
         return {"context": "vessels.self",
                 "updates": [{"values": [{"path": f["path"], "value": value}]}]}
 
     async def send_float(self, f):
-        if self.ws is None or self.ws.closed or f["state"] is None:
+        """Publish only real events: high water, and its clearing.
+
+        A clear float is never announced on its own (at startup or on
+        reconnect): Signal K turns a cleared notification into state
+        "normal", and AvNav shows any notification with a value as an alarm.
+        """
+        if f["state"] is None or f["state"] == f["published"]:
             return
+        if f["state"] == "clear" and f["published"] is None:
+            return
+        if self.ws is None or self.ws.closed:
+            return  # sent on the next connection
         try:
             await self.ws.send_str(json.dumps(self.float_delta(f)))
+            f["published"] = f["state"]
         except Exception as e:  # reconnect loop will resend on the next connection
             log.warning("could not publish %s: %s", f["path"], e)
 
@@ -182,7 +194,9 @@ class Hub:
                 "subscribe": [{"path": "notifications.*", "policy": "instant"}],
             }))
             for f in self.floats:
-                await self.send_float(f)
+                if f["published"] == "high":
+                    f["published"] = None if f["state"] == "high" else "high"
+                await self.send_float(f)  # re-assert high water / deliver a missed clear
             # Rebuild the alarm view from the server's cached values, keeping
             # the old one until the resync window has passed so a switchover
             # doesn't chop an ongoing alarm.

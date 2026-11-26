@@ -32,7 +32,6 @@ name = "forward"
 pin = 27                   # input relay contact pulls it to GND on high water
 path = "notifications.bilge.forward"
 message = "High water in the forward bilge"
-message_clear = "Forward bilge float clear"
 
 [[floats]]
 name = "aft"
@@ -40,4 +39,3 @@ pin = 17                   # nothing wired yet
 enabled = false
 path = "notifications.bilge.aft"
 message = "High water in the aft bilge"
-message_clear = "Aft bilge float clear"

@@ -66,7 +66,15 @@ curl -X POST http://audiopi.local:8080/silence               # until a new alarm
 curl http://audiopi.local:8080/status
 ```
 
-The float is published to Signal K as `notifications.bilge.forward`
-(`emergency` with visual+sound when high, `normal` when clear). That needs a
+The float is published to Signal K as `notifications.bilge.forward`: an
+`emergency` (visual+sound) when it lifts, cleared (null) when it drops. A clear
+float is never announced on its own, at startup or on reconnect. That needs a
 device token: approve audiopi's access request in each plotter's Signal K
 admin (Security > Access Requests) and put the token in the config.
+
+AvNav shows every Signal K notification that has a value as an alarm, even
+state `normal`, and Signal K 2.25 turns a cleared notification into `normal`
+rather than removing it. So AvNav's Signal K handler ignores `bilge.forward`
+and the approval notice (`<AVNSignalKHandler notifyBlackList="server.newVersion,bilge.forward,security.accessRequest.readwrite.<clientId>" ...>`).
+High water shows up in Signal K, not in AvNav; the Klaxon sounds through the
+float's own wiring either way.
