@@ -13,6 +13,8 @@ the anchor alarm.
 | `alarm/avnav-klaxon` | on each plotter: `/usr/local/bin/avnav-klaxon` (0755) |
 | `volume/audiopi-volume.py` | `/usr/local/sbin/audiopi-volume` (0755) |
 | `volume/audiopi-volume.service` | `/etc/systemd/system/audiopi-volume.service` |
+| `system/journald.conf.d-overlay.conf` | `/etc/systemd/journald.conf.d/overlay.conf` |
+| `system/rpi-swap.conf.d-overlay.conf` | `/etc/rpi/swap.conf.d/overlay.conf` |
 
 ## Audio server
 
@@ -86,3 +88,36 @@ rather than removing it. So AvNav's Signal K handler ignores `bilge.forward`
 and the approval notice (`<AVNSignalKHandler notifyBlackList="server.newVersion,bilge.forward,security.accessRequest.readwrite.<clientId>" ...>`).
 High water shows up in Signal K, not in AvNav; the Klaxon sounds through the
 float's own wiring either way.
+
+## Read-only (safe to cut power)
+
+The root filesystem is an overlay (`overlayroot=tmpfs` on the kernel command
+line, `overlayroot` package): the SD card is mounted read-only underneath at
+`/media/root-ro`, and every write lands in RAM and is **discarded at reboot**.
+The boot partition (`/boot/firmware`) is mounted read-only too. Pulling power
+can't corrupt either.
+
+Set up for it before enabling:
+- journald keeps logs in RAM only, capped at 32 MB (`Storage=volatile`), so
+  logs don't slowly fill RAM; they are gone after a reboot.
+- Swap is zram only (`Mechanism=zram`), without the `/var/swap` writeback file.
+- `apt-daily` and `apt-daily-upgrade` timers are disabled.
+- `systemd-remount-fs.service` shows as failed at every boot: it tries to
+  remount `/` from fstab, which is now the overlay. Harmless.
+
+Volume changes (web page, `wpctl`) last until the next reboot; it boots at the
+level saved on the card (100%).
+
+To change anything permanently:
+
+```sh
+sudo raspi-config nonint disable_overlayfs   # then reboot
+sudo raspi-config nonint disable_bootro      # only to edit /boot/firmware
+# ...make changes, then:
+sudo raspi-config nonint enable_bootro
+sudo raspi-config nonint enable_overlayfs    # then reboot
+```
+
+For a quick one-off edit without the two reboots, `sudo overlayroot-chroot`
+opens a shell on the real card (e.g. to add the second plotter's Signal K token
+to `/etc/audiopi-alarm/config.toml`).
